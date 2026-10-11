@@ -39,6 +39,19 @@ h2{font-size:var(--t20);margin-bottom:10px} h3{font-size:var(--t17)}
 .rule{border:0;border-top:1px solid var(--stone);margin:0}
 .tools{display:flex;flex:1;flex-direction:column;gap:10px;align-items:stretch}
 .dept .plaque.sign-out{margin-top:auto;color:#b42318;border-color:#b42318}
+.settings-storage,.settings-months{max-width:640px;margin-top:18px}
+.storage-numbers{display:flex;align-items:baseline;gap:4px;margin-top:18px}
+.storage-numbers>b{font-family:var(--display);font-size:var(--t25);font-variant-numeric:tabular-nums}
+.storage-percent{margin-left:auto}
+.storage-track{height:12px;margin-top:8px;border:1px solid var(--stone);background:var(--limestone);overflow:hidden}
+.storage-track>i{display:block;height:100%;background:var(--olive);transition:width 220ms ease-out}
+.storage-track>i.storage-warn{background:#b1812b}
+.storage-track>i.storage-high{background:#b42318}
+.settings-month-list{display:flex;flex-direction:column}
+.settings-month{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 0;border-bottom:1px solid var(--stone)}
+.settings-month:last-child{border-bottom:0}
+.settings-month .help{margin-top:2px}
+.settings-month button[disabled]{opacity:.45;cursor:not-allowed}
 
 main{padding:28px 28px 80px;min-width:0}
 .wrap{max-width:1200px;margin:0 auto}

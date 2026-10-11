@@ -13,7 +13,7 @@ const curYM = now.getFullYear() + '-' + pad(now.getMonth() + 1);
 
 let S = null;        // the data
 let version = 0;     // version of the data on the server
-const ui = { anim: true, page: 'dashboard', ym: curYM, pm: 'all', q: '', sure: null, onlyOwing: true, menu: false, banner: null, soa: null, openPeople: new Set(), openPlans: new Set() };
+const ui = { anim: true, page: 'dashboard', ym: curYM, pm: 'all', q: '', sure: null, onlyOwing: true, menu: false, banner: null, soa: null, openPeople: new Set(), openPlans: new Set(), storage: null, storageLoading: false };
 
 /* ---------- talking to the server ---------- */
 let dirty = false, saving = false, timer = null, halted = false, conflict = false;
@@ -224,11 +224,61 @@ function pagePlans() {
 }
 
 function pageSettings() {
+  const u = ui.storage, used = u && Number.isFinite(u.usedBytes) ? u.usedBytes : 0, limit = u && u.limitBytes || 1073741824;
+  const pct = Math.min(100, Math.max(0, used / limit * 100)), storage = ui.storageLoading ? '<p class="help">Loading database size…</p>' : u && !u.error ?
+    '<div class="storage-numbers"><b>' + esc(formatBytes(used)) + '</b><span class="help"> of ' + esc(formatBytes(limit)) + '</span><span class="help storage-percent">' + pct.toFixed(2) + '%</span></div><div class="storage-track" role="progressbar" aria-label="Neon database storage used" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' + pct.toFixed(2) + '"><i class="' + (pct >= 90 ? 'storage-high' : pct >= 75 ? 'storage-warn' : '') + '" style="width:' + pct.toFixed(2) + '%"></i></div><p class="help" style="margin:8px 0 0">Database size estimate against the Neon Free plan 1 GB reference. Neon may take time to reclaim space after deletions.</p>' :
+      '<p class="help">' + esc((u && u.error) || 'Storage usage is not available yet.') + '</p>';
+  const months = monthsDesc(S).map((m) => {
+    const totalsForMonth = mtot(m), linked = m.items.some((it) => it.plan);
+    return '<div class="settings-month"><div><b>' + esc(ymLabel(m.ym)) + '</b><div class="help">' + m.items.length + (m.items.length === 1 ? ' item' : ' items') + ' · ' + money(totalsForMonth.total) + ' total · ' + money(totalsForMonth.owe) + ' outstanding</div>' + (linked ? '<div class="help">Delete its linked installment plan before deleting this month.</div>' : '') + '</div><button class="plaque warn" data-delete-month="' + esc(m.ym) + '" type="button"' + (linked ? ' disabled title="Delete the linked installment plan first"' : '') + '>Delete month</button></div>';
+  }).join('') || '<p class="help">No months to delete.</p>';
   return '<section class="counter" style="max-width:640px"><div class="sign" style="color:var(--bronze);margin-bottom:8px">Account</div><h2>Change master password</h2><p class="help" style="margin:0 0 18px">Your password is stored as a one-way hash. You will stay signed in on this device after changing it.</p>' +
     '<form id="fpassword" autocomplete="on"><label class="f">Current password<input name="currentPassword" type="password" autocomplete="current-password" required></label>' +
     '<label class="f" style="margin-top:12px">New password<input name="newPassword" type="password" autocomplete="new-password" minlength="8" required><span class="help">Use at least 8 characters.</span></label>' +
     '<label class="f" style="margin-top:12px">Confirm new password<input name="confirmPassword" type="password" autocomplete="new-password" minlength="8" required></label>' +
-    '<div class="err" id="passwordErr" role="alert"></div><div class="row-act" style="margin-top:16px"><button class="counter-btn" type="submit">Update password</button></div></form></section>';
+    '<div class="err" id="passwordErr" role="alert"></div><div class="row-act" style="margin-top:16px"><button class="counter-btn" type="submit">Update password</button></div></form></section>' +
+    '<section class="counter settings-storage"><div class="row-act" style="justify-content:space-between"><div><div class="sign" style="color:var(--bronze);margin-bottom:8px">Storage</div><h2 style="margin:0">Database usage</h2></div><button class="plaque" data-storage-refresh type="button">Refresh</button></div>' + storage + '</section>' +
+    '<section class="counter settings-months"><div class="sign" style="color:var(--bronze);margin-bottom:8px">Data maintenance</div><h2>Delete a month</h2><p class="help">Deleting a month permanently removes its transactions and removes that month from saved daily recovery copies. Download a backup first if you may need it later. Months containing installment payments must have their linked plan deleted first.</p><div class="settings-month-list">' + months + '</div></section>';
+}
+
+function formatBytes(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  const units = ['KB', 'MB', 'GB']; let n = bytes / 1024, i = 0;
+  while (n >= 1024 && i < units.length - 1) { n /= 1024; i++; }
+  return n.toFixed(2) + ' ' + units[i];
+}
+
+async function refreshStorage() {
+  ui.storageLoading = true; render();
+  try {
+    const r = await fetch('/api/storage', { credentials: 'same-origin', cache: 'no-store' }), j = await r.json().catch(() => ({}));
+    ui.storage = r.ok ? j : { error: j.error || 'Could not load database size.' };
+  } catch { ui.storage = { error: 'Cannot reach the server to read database size.' }; }
+  finally { ui.storageLoading = false; if (ui.page === 'settings') render(); }
+}
+
+function confirmDeleteMonth(ym) {
+  const m = getM(S, ym); if (!m) return;
+  if (m.items.some((it) => it.plan)) { toast('Delete the linked installment plan first'); return; }
+  const x = mtot(m);
+  openModal('Delete ' + esc(ymLabel(ym)) + '?', '<p>This removes ' + m.items.length + (m.items.length === 1 ? ' item' : ' items') + ' totaling <b>' + money(x.total) + '</b> from the tracker and its saved daily recovery copies. This cannot be undone.</p><div class="err" id="monthDeleteErr" role="alert"></div><div class="row-act"><button class="counter-btn" data-confirm-month="' + esc(ym) + '" type="button">Delete month</button><button class="btn2" data-closem="1" type="button">Cancel</button></div>');
+}
+
+async function deleteMonth(ym, button) {
+  const m = getM(S, ym); if (!m) { closeModal(); render(); return; }
+  button.disabled = true;
+  const err = $('#monthDeleteErr');
+  try {
+    if (saving) while (saving) await new Promise((resolve) => setTimeout(resolve, 40));
+    if (dirty) { clearTimeout(timer); await flush(); }
+    if (dirty || conflict) { err.textContent = 'Your latest edits could not be saved. Resolve that first, then reload before deleting.'; return; }
+    const data = structuredClone(S); data.months = data.months.filter((item) => item.ym !== ym);
+    const r = await fetch('/api/month', { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ym, baseVersion: version, data }) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) { err.textContent = j.error || 'Could not delete this month.'; if (r.status === 409) conflict = true; return; }
+    S = j.data; version = j.version; dirty = false; conflict = false; ui.storage = null; ui.ym = defaultYM(S, curYM); closeModal(); render(); toast(ymLabel(ym) + ' deleted');
+  } catch { err.textContent = 'Cannot reach the server. The month was not deleted.'; }
+  finally { if ($('#monthDeleteErr')) button.disabled = false; }
 }
 
 function bannerHTML() {
@@ -246,6 +296,7 @@ function render() {
   app.innerHTML = bannerHTML() + (ui.page === 'month' ? pageMonth() : ui.page === 'people' ? pagePeople() : ui.page === 'statements' ? pageStatements() : ui.page === 'plans' ? pagePlans() : ui.page === 'settings' ? pageSettings() : pageDashboard());
   $('#dept').classList.toggle('open', ui.menu); $('#menuBtn').setAttribute('aria-expanded', ui.menu);
   if ($('#soaBody')) renderSOA();
+  if (ui.page === 'settings' && !ui.storage && !ui.storageLoading) refreshStorage();
 }
 function go(p) { ui.anim = true; ui.page = p; ui.sure = null; ui.menu = false; render(); window.scrollTo(0, 0); }
 
@@ -344,11 +395,14 @@ function markPaid(lines) { lines.forEach((l) => { l.s.pd = l.s.a; }); save(); re
 document.addEventListener('click', (e) => {
   if (e.target.classList && e.target.classList.contains('scrim')) { closeModal(); return; }
   if (e.target.id === 'menuBtn') { ui.menu = !ui.menu; render(); return; }
-  const t = e.target.closest('[data-go],[data-month],[data-person],[data-act],[data-statements],[data-newym],[data-allpaid],[data-del],[data-split],[data-charge-for],[data-closem],[data-addrow],[data-rmrow],[data-equal],[data-copy],[data-delplan],[data-soa],[data-soacopy],[data-soapaid],[data-reload],[data-toggle-person],[data-toggle-plan]');
+  const t = e.target.closest('[data-go],[data-month],[data-person],[data-act],[data-statements],[data-newym],[data-allpaid],[data-del],[data-split],[data-charge-for],[data-closem],[data-addrow],[data-rmrow],[data-equal],[data-copy],[data-delplan],[data-soa],[data-soacopy],[data-soapaid],[data-reload],[data-toggle-person],[data-toggle-plan],[data-storage-refresh],[data-delete-month],[data-confirm-month]');
   if (!t) return; const d = t.dataset;
   if (d.reload) { location.reload(); return; }
   if (d.togglePerson) { ui.openPeople.has(d.togglePerson) ? ui.openPeople.delete(d.togglePerson) : ui.openPeople.add(d.togglePerson); render(); return; }
   if (d.togglePlan) { ui.openPlans.has(d.togglePlan) ? ui.openPlans.delete(d.togglePlan) : ui.openPlans.add(d.togglePlan); render(); return; }
+  if (d.storageRefresh !== undefined) { ui.storage = null; refreshStorage(); return; }
+  if (d.deleteMonth) { confirmDeleteMonth(d.deleteMonth); return; }
+  if (d.confirmMonth) { deleteMonth(d.confirmMonth, t); return; }
   if (d.closem) { closeModal(); return; }
   if (d.go) { go(d.go); return; }
   if (d.month) { ui.ym = d.month; go('month'); return; }
@@ -369,7 +423,7 @@ document.addEventListener('click', (e) => {
   if (d.allpaid) { const a = d.allpaid.split('|'), m = getM(S, a[0]); const lines = []; m.items.forEach((it) => it.shares.forEach((s) => { if (s.p.trim().toLowerCase() === a[1]) lines.push({ s }); })); markPaid(lines); return; }
   if (d.del) { const p = d.del.split('|'); if (ui.sure === d.del) { const f = findItem(S, p[0]); f.it.shares.splice(+p[1], 1); if (!f.it.shares.length) f.m.items.splice(f.j, 1); else f.it.a = sumShares(f.it); ui.sure = null; save(); } else ui.sure = d.del; render(); return; }
   if (d.delplan) {
-    if (ui.sure === 'plan:' + d.delplan) { const id = d.delplan; S.plans = S.plans.filter((x) => x.id !== id); S.months.forEach((m) => { m.items = m.items.filter((it) => !(it.plan && it.plan.id === id && iPaid(it) < it.a - 0.005)); }); ui.sure = null; save(); } else ui.sure = 'plan:' + d.delplan;
+    if (ui.sure === 'plan:' + d.delplan) { const id = d.delplan; S.plans = S.plans.filter((x) => x.id !== id); S.months.forEach((m) => { m.items = m.items.flatMap((it) => { if (!it.plan || it.plan.id !== id) return [it]; if (iPaid(it) < it.a - 0.005) return []; const historical = { ...it }; delete historical.plan; return [historical]; }); }); ui.sure = null; save(); } else ui.sure = 'plan:' + d.delplan;
     render(); return;
   }
   if (d.addrow) { const rows = readRows(); rows.push({ p: '', a: '' }); writeRows(rows); return; }

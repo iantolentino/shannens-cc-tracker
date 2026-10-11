@@ -70,6 +70,7 @@ Neon also has a one-click Vercel integration (Vercel project → Storage → Neo
   UPDATE app_state SET data = (SELECT data FROM app_backups WHERE day = '2026-10-11'), version = version + 1 WHERE id = 'main';
   ```
   Then reload the app.
+- **Storage and month deletion:** Settings shows the current Postgres database size against the Neon Free plan's 1 GB reference limit. Deleting a month removes it from the current tracker and from daily recovery snapshots; download **Back up data** first if you want to keep a separate copy. Neon may not reclaim the underlying storage immediately after a deletion.
 
 ---
 
