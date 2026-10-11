@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { login, logout, state } from '../lib/handlers.js';
+import { login, logout, state, changePassword } from '../lib/handlers.js';
 import { memoryStore, fileStore } from '../lib/store.js';
 import { makeToken, verifyToken } from '../lib/auth.js';
 import seed from '../lib/seed.js';
@@ -37,6 +37,16 @@ test('login: wrong password is refused, right password sets an HttpOnly cookie',
 test('login refuses to run without a configured password and secret', async () => {
   const r = await call(login, { method: 'POST', body: { password: 'a' }, ctx: { env: { SESSION_SECRET: 'x'.repeat(40) }, store: memoryStore() } });
   assert.equal(r.statusCode, 500);
+});
+
+test('password changes require authentication and the current password, then replace the login password', async () => {
+  const store = memoryStore(), ctx = { env, store }, cookie = await signIn(ctx);
+  assert.equal((await call(changePassword, { method: 'POST', body: { currentPassword: env.APP_PASSWORD, newPassword: 'short' }, headers: { cookie }, ctx })).statusCode, 422);
+  assert.equal((await call(changePassword, { method: 'POST', body: { currentPassword: 'wrong', newPassword: 'a much stronger password' }, headers: { cookie }, ctx })).statusCode, 401);
+  assert.equal((await call(changePassword, { method: 'POST', body: { currentPassword: env.APP_PASSWORD, newPassword: 'a much stronger password' }, headers: { cookie }, ctx })).statusCode, 200);
+  assert.equal((await call(login, { method: 'POST', body: { password: env.APP_PASSWORD }, ctx })).statusCode, 401);
+  assert.equal((await call(login, { method: 'POST', body: { password: 'a much stronger password' }, ctx })).statusCode, 200);
+  assert.equal((await call(state, { ctx, headers: { cookie } })).statusCode, 200, 'the current session remains active');
 });
 
 test('state: no cookie, a forged cookie, a tampered cookie and an expired cookie are all refused', async () => {

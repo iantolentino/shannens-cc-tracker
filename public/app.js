@@ -221,6 +221,14 @@ function pagePlans() {
   return h;
 }
 
+function pageSettings() {
+  return '<section class="counter" style="max-width:640px"><div class="sign" style="color:var(--bronze);margin-bottom:8px">Account</div><h2>Change master password</h2><p class="help" style="margin:0 0 18px">Your password is stored as a one-way hash. You will stay signed in on this device after changing it.</p>' +
+    '<form id="fpassword" autocomplete="on"><label class="f">Current password<input name="currentPassword" type="password" autocomplete="current-password" required></label>' +
+    '<label class="f" style="margin-top:12px">New password<input name="newPassword" type="password" autocomplete="new-password" minlength="8" required><span class="help">Use at least 8 characters.</span></label>' +
+    '<label class="f" style="margin-top:12px">Confirm new password<input name="confirmPassword" type="password" autocomplete="new-password" minlength="8" required></label>' +
+    '<div class="err" id="passwordErr" role="alert"></div><div class="row-act" style="margin-top:16px"><button class="counter-btn" type="submit">Update password</button></div></form></section>';
+}
+
 function bannerHTML() {
   const b = ui.banner; if (!b) return '';
   if (b.kind === 'conflict') return '<div class="banner" role="alert"><span>This data was changed on another device. Reload to see the latest. Your last change was not saved.</span><button class="counter-btn" data-reload="1" type="button">Reload</button></div>';
@@ -233,7 +241,7 @@ function render() {
   const cur = ui.page === 'statements' ? 'month' : ui.page;
   document.querySelectorAll('.dl').forEach((b) => { if (b.dataset.go === cur) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current'); });
   const app = $('#app'); app.className = 'wrap' + (ui.anim ? ' anim' : ''); ui.anim = false;
-  app.innerHTML = bannerHTML() + (ui.page === 'month' ? pageMonth() : ui.page === 'people' ? pagePeople() : ui.page === 'statements' ? pageStatements() : ui.page === 'plans' ? pagePlans() : pageDashboard());
+  app.innerHTML = bannerHTML() + (ui.page === 'month' ? pageMonth() : ui.page === 'people' ? pagePeople() : ui.page === 'statements' ? pageStatements() : ui.page === 'plans' ? pagePlans() : ui.page === 'settings' ? pageSettings() : pageDashboard());
   $('#dept').classList.toggle('open', ui.menu); $('#menuBtn').setAttribute('aria-expanded', ui.menu);
   if ($('#soaBody')) renderSOA();
 }
@@ -404,6 +412,23 @@ document.addEventListener('submit', (e) => {
     fetch('/api/login', { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ password: pw }) })
       .then(async (r) => { if (r.ok) { if (S) { $('#login').hidden = true; $('#shell').hidden = false; if (dirty) flush(); render(); } else boot(); } else { const j = await r.json().catch(() => ({})); $('#loginErr').textContent = j.error || 'Could not sign in.'; } })
       .catch(() => { $('#loginErr').textContent = 'Cannot reach the server.'; });
+    return;
+  }
+  if (f.id === 'fpassword') {
+    const currentPassword = f.elements.currentPassword.value, newPassword = f.elements.newPassword.value;
+    const confirmPassword = f.elements.confirmPassword.value, err = $('#passwordErr');
+    err.textContent = '';
+    if (newPassword !== confirmPassword) { err.textContent = 'The new passwords do not match.'; return; }
+    if (newPassword.length < 8) { err.textContent = 'The new password must be at least 8 characters.'; return; }
+    const button = f.querySelector('button[type="submit"]'); button.disabled = true;
+    fetch('/api/password', { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ currentPassword, newPassword }) })
+      .then(async (r) => {
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) { err.textContent = j.error || 'Could not update the password.'; return; }
+        f.reset(); toast('Password updated');
+      })
+      .catch(() => { err.textContent = 'Cannot reach the server. Try again.'; })
+      .finally(() => { button.disabled = false; });
     return;
   }
   if (f.id === 'fcharge') {

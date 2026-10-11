@@ -32,14 +32,14 @@ You do **not** need to create any tables. The app creates them the first time it
 | Name | Value |
 |---|---|
 | `DATABASE_URL` | the Neon connection string from Step 1 |
-| `APP_PASSWORD` | the password you will type to sign in (long is better, 12+ characters) |
+| `APP_PASSWORD` | the initial password you will type to sign in (use this once, then change it in Settings) |
 | `SESSION_SECRET` | any random text of 32+ characters |
 
    To make a random secret, run `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`, or type 40 random letters and numbers.
 4. Click **Deploy**.
 
 ### Step 4. First sign-in
-Open your Vercel link and type your password. On this first sign-in the app loads your starting data (copied from your Excel file) into the database, once. After that, everything you change is saved to Neon.
+Open your Vercel link and type your initial password. On this first sign-in the app loads your starting data (copied from your Excel file) into the database, once, and stores a one-way password hash in Neon. After that, everything you change is saved to Neon. Change the initial password from **Settings** in the app.
 
 ---
 
@@ -64,7 +64,7 @@ Neon also has a one-click Vercel integration (Vercel project → Storage → Neo
 - After your first sign-in you can replace the contents of `lib/seed.js` with an empty start so your numbers are not sitting in the repository:
   `export default { v: 2, limit: 90000, people: [], months: [], plans: [] };`
   The database already has your data, so nothing is lost. Keep a copy of the original file if you want to run `npm test` again, because those tests compare the seed to your Excel numbers.
-- To change the password, change `APP_PASSWORD` in Vercel and redeploy. Changing `SESSION_SECRET` signs every device out.
+- Change the master password from **Settings** in the app. New passwords must be at least 8 characters. `APP_PASSWORD` is only used to initialize the first sign-in; once a password hash is stored in Neon, the database hash is the source of truth. Changing `SESSION_SECRET` in Vercel signs every device out.
 - **Daily safety copy:** before the first change each day, the app saves a snapshot of the data in the table `app_backups`. If something is deleted by mistake, open Neon's **SQL Editor** and run this (replace the date):
   ```sql
   UPDATE app_state SET data = (SELECT data FROM app_backups WHERE day = '2026-10-11'), version = version + 1 WHERE id = 'main';
@@ -132,10 +132,11 @@ public/app.js        screens and buttons
 public/logic.js      all money math (used by the app, the server and the tests)
 public/favicon.svg   tab icon
 api/login.js         POST  /api/login
+api/password.js      POST  /api/password (authenticated password change)
 api/logout.js        POST  /api/logout
 api/state.js         GET and PUT /api/state
 lib/handlers.js      the API logic
-lib/auth.js          signed login cookie
+lib/auth.js          signed login cookie and password hashing
 lib/store.js         Neon, file and memory storage
 lib/seed.js          your starting data (server only)
 data/excel-checksums.json   Excel totals the tests compare against

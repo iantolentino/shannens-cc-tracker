@@ -2,7 +2,7 @@
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
-import { login, logout, state } from '../lib/handlers.js';
+import { login, logout, state, changePassword } from '../lib/handlers.js';
 import { getStore } from '../lib/store.js';
 
 // Read .env.local / .env if present (no extra dependency).
@@ -24,7 +24,8 @@ const port = +env.PORT || 3000;
 http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost');
   try {
-    if (url.pathname === '/api/login') return await login(req, res, { env });
+    if (url.pathname === '/api/login') return await login(req, res, { env, store: await getStore(env) });
+    if (url.pathname === '/api/password') return await changePassword(req, res, { env, store: await getStore(env) });
     if (url.pathname === '/api/logout') return await logout(req, res);
     if (url.pathname === '/api/state') return await state(req, res, { env, store: await getStore(env) });
     let p = path.join(root, url.pathname === '/' ? 'index.html' : url.pathname);
