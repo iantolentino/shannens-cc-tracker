@@ -13,7 +13,7 @@ const curYM = now.getFullYear() + '-' + pad(now.getMonth() + 1);
 
 let S = null;        // the data
 let version = 0;     // version of the data on the server
-const ui = { anim: true, page: 'dashboard', ym: curYM, pm: 'all', q: '', sure: null, onlyOwing: true, menu: false, banner: null, soa: null };
+const ui = { anim: true, page: 'dashboard', ym: curYM, pm: 'all', q: '', sure: null, onlyOwing: true, menu: false, banner: null, soa: null, openPeople: new Set(), openPlans: new Set() };
 
 /* ---------- talking to the server ---------- */
 let dirty = false, saving = false, timer = null, halted = false, conflict = false;
@@ -154,15 +154,16 @@ function pagePeople() {
     if (!ls.length && (q || ui.pm !== 'all')) return;
     let t = 0, p = 0; ls.forEach((l) => { t += Math.round(l.s.a * 100); p += Math.round(paidOf(l.s) * 100); });
     t /= 100; p /= 100; const owe = r2(t - p);
+    const expanded = ui.openPeople.has(P.key);
     let c = '<article class="counter tight pc" style="--i:' + Math.min(i++, 8) + '"><div class="pc-h"><div class="pc-name">' + esc(P.name) + '</div>' + (t === 0 ? '<span class="pill soon">No charges</span>' : (owe > 0.005 ? '<span class="pill owe">Balance</span>' : '<span class="pill ok">All paid</span>')) + '</div>' +
       '<div class="sum"><div><span class="help">Total bill</span><b class="n">' + money(t) + '</b></div><div><span class="help">Outstanding</span><b class="n" style="color:' + (owe > 0.005 ? 'var(--bronze)' : 'var(--olive)') + '">' + money(owe) + '</b></div></div>';
     const by = {}; ls.forEach((l) => { (by[l.m.ym] = by[l.m.ym] || { m: l.m, rows: [] }).rows.push(l); });
     Object.keys(by).map((k) => by[k]).sort((a, b) => (a.m.ym < b.m.ym ? 1 : -1)).forEach((g) => {
       let gt = 0, gl = 0; g.rows.forEach((l) => { gt += l.s.a; gl += l.s.a - paidOf(l.s); });
-      c += '<div class="mg"><div class="mg-h"><span><b>' + esc(ymLabel(g.m.ym)) + '</b><br><span class="help">Due ' + esc(fshort(g.m.due)) + ' · ' + money(r2(gt)) + '</span></span>' + (gl > 0.005 ? '<button class="plaque" data-allpaid="' + g.m.ym + '|' + esc(P.key) + '" type="button">Mark all paid</button>' : '<span class="pill ok">Paid</span>') + '</div>' + g.rows.map(lineHTML).join('') + '</div>';
+      c += '<div class="mg"><div class="mg-h"><span><b>' + esc(ymLabel(g.m.ym)) + '</b><br><span class="help">Due ' + esc(fshort(g.m.due)) + ' · ' + money(r2(gt)) + '</span></span>' + (gl > 0.005 ? '<button class="plaque" data-allpaid="' + g.m.ym + '|' + esc(P.key) + '" type="button">Mark all paid</button>' : '<span class="pill ok">Paid</span>') + '</div><div' + (expanded ? '' : ' hidden') + '>' + g.rows.map(lineHTML).join('') + '</div></div>';
     });
     if (!ls.length) c += '<p class="help" style="margin:0">No charges yet.</p>';
-    c += '<div class="row-act" style="margin-top:auto;justify-content:space-between"><button class="plaque" data-charge-for="' + esc(P.name) + '" type="button">+ Add item</button><button class="btn2" data-soa="' + esc(P.key) + '" type="button">Statement (SOA)</button></div></article>';
+    c += '<div class="row-act" style="margin-top:auto;justify-content:space-between"><button class="plaque" data-toggle-person="' + esc(P.key) + '" aria-expanded="' + expanded + '" type="button">' + (expanded ? 'Hide all items' : 'Show all items') + '</button><button class="plaque" data-charge-for="' + esc(P.name) + '" type="button">+ Add item</button><button class="btn2" data-soa="' + esc(P.key) + '" type="button">Statement (SOA)</button></div></article>';
     cards.push(c);
   });
   return h + (cards.length ? '<div class="pgrid">' + cards.join('') + '</div>' : '<div class="empty">Nothing matches.</div>');
@@ -207,11 +208,12 @@ function pagePlans() {
   let h = '<div class="ctrl"><button class="counter-btn" data-act="plan" type="button">New installment</button></div>';
   if (!S.plans.length) return h + '<div class="counter"><div class="empty">No installment plans yet.<br>Press New installment to add one.</div></div>';
   h += '<div class="grid" style="gap:20px">' + S.plans.map((p, i) => {
-    const f = planInfo(S, p), pct = Math.round(f.done / p.months * 100), total = r2(p.total);
+    const f = planInfo(S, p), pct = Math.round(f.done / p.months * 100), total = r2(p.total), expanded = ui.openPlans.has(p.id);
     return '<section class="counter" style="--i:' + Math.min(i, 8) + '"><div class="row-act" style="justify-content:space-between;align-items:flex-start"><div><h2 style="margin:0">' + esc(p.name) + '</h2><div class="help">Paid by ' + esc(p.payers.join(', ')) + ' · due on day ' + (p.day || 1) + ' of each month</div></div><button class="plaque warn" data-delplan="' + p.id + '" type="button">' + (ui.sure === 'plan:' + p.id ? 'Tap again to delete' : 'Delete plan') + '</button></div>' +
       '<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:14px 0"><div class="sum" style="display:block"><div><span class="help">Total price</span><b class="n">' + money(total) + '</b></div></div><div class="sum" style="display:block"><div><span class="help">Each month</span><b class="n">' + money(f.each) + '</b></div></div><div class="sum" style="display:block"><div><span class="help">Paid</span><b class="n">' + f.done + ' of ' + p.months + '</b></div></div><div class="sum" style="display:block"><div><span class="help">Still to pay</span><b class="n" style="color:' + (f.left > 0.005 ? 'var(--bronze)' : 'var(--olive)') + '">' + money(f.left) + '</b></div></div></div>' +
       '<div class="prog" role="img" aria-label="' + f.done + ' of ' + p.months + ' paid"><i style="width:' + pct + '%"></i></div>' +
-      '<div class="tw"><table class="sched"><thead><tr><th>#</th><th>Due date</th><th class="r">Amount</th><th>Status</th></tr></thead><tbody>' +
+      '<div class="row-act" style="margin:14px 0"><button class="plaque" data-toggle-plan="' + esc(p.id) + '" aria-expanded="' + expanded + '" type="button">' + (expanded ? 'Hide payment months' : 'Show payment months') + '</button></div>' +
+      '<div class="tw"' + (expanded ? '' : ' hidden') + '><table class="sched"><thead><tr><th>#</th><th>Due date</th><th class="r">Amount</th><th>Status</th></tr></thead><tbody>' +
       f.rows.map((r) => '<tr><td class="num n">' + (r.k + 1) + '</td><td>' + esc(fdue(r.due)) + '</td><td class="r n">' + money(r.amount) + '</td><td>' +
         (r.pre ? '<span class="pill ok">Paid</span> <span class="help">in an earlier bill</span>' :
           r.item ? '<label style="display:inline-flex;gap:8px;align-items:center;cursor:pointer"><input type="checkbox" data-plantog="' + r.item.id + '" ' + (r.paid ? 'checked' : '') + ' aria-label="Paid ' + esc(fdue(r.due)) + '" style="width:18px;height:18px"> ' + (r.paid ? '<span class="pill ok">Paid</span>' : '<span class="pill owe">Unpaid</span>') + '</label>' :
@@ -342,9 +344,11 @@ function markPaid(lines) { lines.forEach((l) => { l.s.pd = l.s.a; }); save(); re
 document.addEventListener('click', (e) => {
   if (e.target.classList && e.target.classList.contains('scrim')) { closeModal(); return; }
   if (e.target.id === 'menuBtn') { ui.menu = !ui.menu; render(); return; }
-  const t = e.target.closest('[data-go],[data-month],[data-person],[data-act],[data-statements],[data-newym],[data-allpaid],[data-del],[data-split],[data-charge-for],[data-closem],[data-addrow],[data-rmrow],[data-equal],[data-copy],[data-delplan],[data-soa],[data-soacopy],[data-soapaid],[data-reload]');
+  const t = e.target.closest('[data-go],[data-month],[data-person],[data-act],[data-statements],[data-newym],[data-allpaid],[data-del],[data-split],[data-charge-for],[data-closem],[data-addrow],[data-rmrow],[data-equal],[data-copy],[data-delplan],[data-soa],[data-soacopy],[data-soapaid],[data-reload],[data-toggle-person],[data-toggle-plan]');
   if (!t) return; const d = t.dataset;
   if (d.reload) { location.reload(); return; }
+  if (d.togglePerson) { ui.openPeople.has(d.togglePerson) ? ui.openPeople.delete(d.togglePerson) : ui.openPeople.add(d.togglePerson); render(); return; }
+  if (d.togglePlan) { ui.openPlans.has(d.togglePlan) ? ui.openPlans.delete(d.togglePlan) : ui.openPlans.add(d.togglePlan); render(); return; }
   if (d.closem) { closeModal(); return; }
   if (d.go) { go(d.go); return; }
   if (d.month) { ui.ym = d.month; go('month'); return; }

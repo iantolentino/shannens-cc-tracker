@@ -29,7 +29,7 @@ h2{font-size:var(--t20);margin-bottom:10px} h3{font-size:var(--t17)}
 .brand{font-family:var(--display);font-weight:800;font-size:var(--t17);letter-spacing:.06em;text-transform:uppercase;line-height:1.1}
 .brand small{display:block;font-weight:600;font-size:var(--t13);letter-spacing:.1em;color:var(--bronze);margin-top:2px}
 .menu-btn{display:none}
-.dept-body{display:flex;flex-direction:column;gap:20px}
+.dept-body{display:flex;flex:1;min-height:0;flex-direction:column;gap:20px}
 .nav{display:flex;flex-direction:column;gap:2px}
 .dl{display:flex;align-items:center;gap:10px;background:none;border:0;text-align:left;padding:10px 10px;border-radius:2px;font-family:var(--display);font-weight:600;font-size:var(--t13);letter-spacing:.1em;text-transform:uppercase;color:var(--ink);transition:background 160ms ease-out}
 .dl::before{content:"";width:9px;height:9px;border-radius:50%;border:1.5px solid var(--stone);flex:none;transition:all 160ms ease-out}
@@ -37,7 +37,8 @@ h2{font-size:var(--t20);margin-bottom:10px} h3{font-size:var(--t17)}
 .dl[aria-current="page"]{color:var(--olive-dk)}
 .dl[aria-current="page"]::before{background:var(--bronze);border-color:var(--bronze)}
 .rule{border:0;border-top:1px solid var(--stone);margin:0}
-.tools{display:flex;flex-direction:column;gap:10px;align-items:stretch}
+.tools{display:flex;flex:1;flex-direction:column;gap:10px;align-items:stretch}
+.dept .plaque.sign-out{margin-top:auto;color:#b42318;border-color:#b42318}
 
 main{padding:28px 28px 80px;min-width:0}
 .wrap{max-width:1200px;margin:0 auto}
@@ -205,6 +206,7 @@ tr.click:focus-visible{outline-offset:-2px}
   .dl[aria-current="page"]{color:var(--limestone)}
   .rule{border-color:rgba(246,244,236,.3)}
   .plaque{color:var(--stone);border-color:var(--stone)} .plaque:hover{background:rgba(246,244,236,.12)}
+  .dept .plaque.sign-out{color:#ff9b91;border-color:#ff9b91}
   .dept .counter-btn{background:var(--limestone);color:var(--olive-dk)}
   .dept .btn2{background:transparent;color:var(--limestone);border-color:var(--limestone)}
   
