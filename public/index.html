@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<meta name="theme-color" content="#f6f4ec">
+<title>CC Tracker</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=Source+Sans+3:wght@400;600;700&display=swap">
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<div id="boot" class="login"><div class="counter"><div class="sign" style="color:var(--bronze)">Loading</div></div></div>
+
+<div id="login" class="login" hidden>
+  <form class="counter" id="loginForm" autocomplete="on">
+    <h1>CC Tracker</h1>
+    <label class="f" for="pw">Password<input id="pw" name="password" type="password" autocomplete="current-password" required autofocus><span class="help">Type the password you set for this site.</span></label>
+    <div class="err" id="loginErr" role="alert"></div>
+    <button class="counter-btn" type="submit">Open tracker</button>
+  </form>
+</div>
+
+<div class="shell" id="shell" hidden>
+  <aside class="dept" id="dept">
+    <div class="dept-top">
+      <div class="brand">CC Tracker</div>
+      <button class="menu-btn" id="menuBtn" type="button" aria-expanded="false" aria-controls="deptBody">Menu</button>
+    </div>
+    <div class="dept-body" id="deptBody">
+      <nav class="nav" aria-label="Pages">
+        <button class="dl" data-go="dashboard" type="button">Overview</button>
+        <button class="dl" data-go="month" type="button">Monthly card</button>
+        <button class="dl" data-go="people" type="button">People cards</button>
+        <button class="dl" data-go="plans" type="button">Installments</button>
+      </nav>
+      <hr class="rule">
+      <div class="tools">
+        <button class="counter-btn" data-act="charge" type="button">Add charge</button>
+        <button class="btn2" data-act="plan" type="button">New installment</button>
+        <button class="plaque" data-act="newmonth" type="button">New month</button>
+        <button class="plaque" data-act="export" type="button">Back up data</button>
+        <button class="plaque" data-act="logout" type="button">Sign out</button>
+      </div>
+    </div>
+  </aside>
+  <main><div class="wrap" id="app"></div></main>
+</div>
+<div id="modal"></div>
+<script type="module" src="/app.js"></script>
+</body>
+</html>

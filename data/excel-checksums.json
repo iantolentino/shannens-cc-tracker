@@ -1,0 +1,92 @@
+{
+ "_about": "Section totals read from CC_Tracker.xlsx (the cached value of each person's Total cell). Used only by the tests to prove the imported data matches the spreadsheet.",
+ "months": {
+  "2026-04": {
+   "personTotals": {
+    "Claud": 8801.06,
+    "Joms": 275,
+    "Lovey": 1125,
+    "Shan": 1992.01
+   },
+   "billTotal": 12193.07,
+   "sheetGrandTotal": 12193.07
+  },
+  "2026-05": {
+   "personTotals": {
+    "Claud": 16987.05,
+    "Shan": 4089.4,
+    "Joms": 662,
+    "Danica": 3176,
+    "Marco": 441.6,
+    "Dada": 607,
+    "Lovey": 702
+   },
+   "billTotal": 26665.05,
+   "sheetGrandTotal": 26665.05
+  },
+  "2026-06": {
+   "personTotals": {
+    "Shan": 35315.6,
+    "Claud": 7725,
+    "Ian": 1176.5,
+    "Joms": 804,
+    "Brent": 350
+   },
+   "billTotal": 45371.1,
+   "sheetGrandTotal": 45371.1
+  },
+  "2026-07": {
+   "personTotals": {
+    "Shan": 4486.51,
+    "Claud": 8110.29,
+    "Mr. Wang": 1410,
+    "Dada": 118
+   },
+   "billTotal": 14124.8,
+   "sheetGrandTotal": 14124.8
+  },
+  "2026-08": {
+   "personTotals": {
+    "Shan": 3126.4,
+    "Claud": 4875.6,
+    "Mama": 9996.93
+   },
+   "billTotal": 17998.93,
+   "sheetGrandTotal": 17998.93
+  },
+  "2026-09": {
+   "personTotals": {
+    "Shan": 1895.76,
+    "Mama": 16031.5,
+    "Claud": 2009.0
+   },
+   "billTotal": 19936.26,
+   "sheetGrandTotal": 19936.26
+  },
+  "2026-10": {
+   "personTotals": {
+    "Shan": 3248.84,
+    "Mama": 14952.22,
+    "Claud": 2009.0,
+    "Ian": 205,
+    "Others": 5571.69
+   },
+   "billTotal": 25986.75,
+   "sheetGrandTotal": 25986.75
+  }
+ },
+ "installments": {
+  "Sharp Refrigerator": {
+   "payments": 12,
+   "amountEach": 2254.583,
+   "firstDue": "2026-08-03",
+   "price": 27055.0
+  },
+  "iPad A16 11th Gen": {
+   "payments": 12,
+   "amountEach": 2009.0,
+   "firstDue": "2026-04-05",
+   "price": 24108.0
+  }
+ }
+}
