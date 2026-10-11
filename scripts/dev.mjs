@@ -2,7 +2,7 @@
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
-import { login, logout, state, changePassword } from '../lib/handlers.js';
+import { login, logout, state, changePassword, storage, deleteMonth } from '../lib/handlers.js';
 import { getStore } from '../lib/store.js';
 
 // Read .env.local / .env if present (no extra dependency).
@@ -28,6 +28,8 @@ http.createServer(async (req, res) => {
     if (url.pathname === '/api/password') return await changePassword(req, res, { env, store: await getStore(env) });
     if (url.pathname === '/api/logout') return await logout(req, res);
     if (url.pathname === '/api/state') return await state(req, res, { env, store: await getStore(env) });
+    if (url.pathname === '/api/storage') return await storage(req, res, { env, store: await getStore(env) });
+    if (url.pathname === '/api/month') return await deleteMonth(req, res, { env, store: await getStore(env) });
     let p = path.join(root, url.pathname === '/' ? 'index.html' : url.pathname);
     if (!p.startsWith(root) || !fs.existsSync(p) || fs.statSync(p).isDirectory()) { res.statusCode = 404; return res.end('Not found'); }
     res.setHeader('content-type', types[path.extname(p)] || 'application/octet-stream');

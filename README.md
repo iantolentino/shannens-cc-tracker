@@ -81,6 +81,7 @@ Neon also has a one-click Vercel integration (Vercel project → Storage → Neo
   - **Monthly statements** makes one receipt per person for that month, ready to screenshot. **Copy as text** copies the same receipt for a chat message.
 - **People cards:** one card per person (3 across on desktop and tablet, 1 on a phone). Edit the product, price and remark on the card, tick items as paid, add items, or press **Split** to share a bill. Each card has a **Statement (SOA)** button. It shows that person's receipt for the month you filtered, or all of their unpaid charges across every month.
 - **Installments:** every plan with its full payment schedule. Tick each payment as it is paid. **New installment** asks for the product, total price, number of months, first payment month, due day and who pays.
+- **Settings:** change the master password, check the live database-size bar, and remove a month after confirming. The password and month-management cards sit side by side when there is room and stack on phones and narrower screens. Deleting a month also removes that month from daily recovery snapshots, so download **Back up data** first if you may need a separate copy. Months containing installment payments stay protected until the linked plan is deleted.
 - **Split bills:** Add charge → enter the total → choose each person → **Split equally** (or type each share). The shares must add up to the bill.
 
 ### How the numbers are calculated

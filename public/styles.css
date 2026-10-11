@@ -39,7 +39,12 @@ h2{font-size:var(--t20);margin-bottom:10px} h3{font-size:var(--t17)}
 .rule{border:0;border-top:1px solid var(--stone);margin:0}
 .tools{display:flex;flex:1;flex-direction:column;gap:10px;align-items:stretch}
 .dept .plaque.sign-out{margin-top:auto;color:#b42318;border-color:#b42318}
-.settings-storage,.settings-months{max-width:640px;margin-top:18px}
+.settings-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr));align-items:start;gap:20px}
+.settings-grid>.counter{width:100%;min-width:0;max-width:none;margin:0}
+.settings-account{grid-column:1}
+.settings-months{grid-column:2}
+.settings-storage{grid-column:1/-1;grid-row:2}
+@media (max-width:880px){.settings-months{grid-column:1}.settings-storage{grid-row:auto}}
 .storage-numbers{display:flex;align-items:baseline;gap:4px;margin-top:18px}
 .storage-numbers>b{font-family:var(--display);font-size:var(--t25);font-variant-numeric:tabular-nums}
 .storage-percent{margin-left:auto}
@@ -51,6 +56,7 @@ h2{font-size:var(--t20);margin-bottom:10px} h3{font-size:var(--t17)}
 .settings-month{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 0;border-bottom:1px solid var(--stone)}
 .settings-month:last-child{border-bottom:0}
 .settings-month .help{margin-top:2px}
+.settings-month .plaque{flex-shrink:0;white-space:nowrap}
 .settings-month button[disabled]{opacity:.45;cursor:not-allowed}
 
 main{padding:28px 28px 80px;min-width:0}
@@ -227,6 +233,14 @@ tr.click:focus-visible{outline-offset:-2px}
   .two{grid-template-columns:minmax(0,1fr)}
   .counter{padding:18px}
 }
+@media (max-width:540px){
+  main{padding-inline:12px}
+  .settings-grid{gap:14px}
+  .settings-month{align-items:flex-start;gap:10px}
+  .settings-month>div{min-width:0;overflow-wrap:anywhere}
+  .storage-numbers>b{font-size:var(--t20)}
+}
+@media (max-width:380px){.settings-month{flex-direction:column;align-items:flex-start}.settings-month .plaque{margin-top:2px}}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 
 /* uniform dropdowns: custom arrow with room on the right */
