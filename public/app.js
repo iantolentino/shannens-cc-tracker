@@ -1,7 +1,7 @@
 // CC Tracker front end. All money math lives in logic.js; this file draws pages and talks to the API.
 import * as L from './logic.js';
 const { MON, r2, ymLabel, ymShort, addM, fdue, fshort, uid, paidOf, sPaid, iPaid, mtot, statusOf, equalSplit, getM, monthsAsc, monthsDesc,
-  ensureMonth, defaultYM, findItem, totals, availableCredit, allPeople, personStatement, monthStatements, planAmounts, generatePlan, planInfo, sumShares } = L;
+  ensureMonth, defaultYM, findItem, totals, allPeople, personStatement, monthStatements, planAmounts, generatePlan, planInfo, sumShares } = L;
 
 const peso = new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP', minimumFractionDigits: 2 });
 const money = (n) => peso.format(n);
@@ -11,9 +11,9 @@ const pad = (n) => (n < 10 ? '0' : '') + n;
 const now = new Date();
 const curYM = now.getFullYear() + '-' + pad(now.getMonth() + 1);
 
-let S = null;        // the data
+let S = null;        // all cards and data
 let version = 0;     // version of the data on the server
-const ui = { anim: true, page: 'dashboard', ym: curYM, pm: 'all', q: '', sure: null, onlyOwing: true, menu: false, banner: null, soa: null, openPeople: new Set(), openPlans: new Set(), storage: null, storageLoading: false };
+const ui = { anim: true, page: 'dashboard', previous: 'dashboard', cardId: 'card-default', planOrder: 'newest', ym: curYM, pm: 'all', q: '', sure: null, onlyOwing: true, menu: false, banner: null, soa: null, openPeople: new Set(), openPlans: new Set(), storage: null, storageLoading: false };
 
 /* ---------- talking to the server ---------- */
 let dirty = false, saving = false, timer = null, halted = false, conflict = false;
@@ -57,6 +57,14 @@ async function boot() {
     if (!r.ok) { showFatal(j.error || 'The server returned an error.'); return; }
     S = j.data; version = j.version; conflict = false; dirty = false;
     S.plans = S.plans || []; S.people = S.people || [];
+    S.cards = S.cards || [{ id: 'card-default', name: 'Primary card', bank: 'Existing card' }];
+    let migrated = false;
+    if (!S.cards.some((c) => c.id === 'card-default')) S.cards.unshift({ id: 'card-default', name: 'Primary card', bank: 'Existing card' });
+    S.months.forEach((m) => { if (!m.cardId) { m.cardId = 'card-default'; migrated = true; } });
+    S.plans.forEach((p) => { if (!p.cardId) { p.cardId = 'card-default'; migrated = true; } });
+    ui.cardId = localStorage.getItem('cc-card-' + location.host) || 'card-default';
+    if (!S.cards.some((c) => c.id === ui.cardId)) ui.cardId = S.cards[0].id;
+    if (migrated || !j.data.cards) save();
     ui.ym = ui.pm = defaultYM(S, curYM);
     $('#boot').hidden = true; $('#login').hidden = true; $('#shell').hidden = false;
     ui.anim = true; render();
@@ -66,19 +74,19 @@ async function boot() {
 /* ---------- helpers ---------- */
 const pill = (st) => '<span class="pill ' + (st === 'paid' ? 'ok' : st === 'part' ? 'part' : 'owe') + '">' + (st === 'paid' ? 'Paid' : st === 'part' ? 'Part paid' : 'Unpaid') + '</span>';
 const money0 = (n) => (n >= 1000 ? '₱' + (n / 1000).toFixed(1) + 'k' : '₱' + Math.round(n));
-const people = () => allPeople(S);
+const people = () => allPeople(cardData());
 const nameList = () => people().map((p) => p.name).sort((a, b) => a.localeCompare(b));
+const cardData = () => ({ ...S, months: S.months.filter((m) => (m.cardId || 'card-default') === ui.cardId), plans: S.plans.filter((p) => (p.cardId || 'card-default') === ui.cardId) });
+const activeCard = () => S.cards.find((c) => c.id === ui.cardId) || S.cards[0];
 
 /* ---------- pages ---------- */
 function pageDashboard() {
-  const T = totals(S, curYM), ms = monthsAsc(S);
+  const D = cardData(), T = totals(D, curYM), ms = monthsAsc(D);
   let hi = null, hiT = -1, max = 1;
   ms.forEach((m) => { const t = mtot(m).total; if (t > hiT) { hiT = t; hi = m; } if (t > max) max = t; });
-  const avail = availableCredit(S, curYM); let i = 0;
+  let i = 0;
   let h = '<div class="grid kpis">' +
     '<div class="counter kpi" style="--i:' + (i++) + '"><div class="k">Outstanding balance</div><div class="v owe n">' + money(T.owe) + '</div><div class="s">Billed so far ' + money(T.past) + '<br>Upcoming installments ' + money(T.fut) + '</div></div>' +
-    '<div class="counter kpi" style="--i:' + (i++) + '"><div class="k">Available credit</div><div class="v ok n">' + money(avail) + '</div><div class="s">Credit limit minus the outstanding balance</div></div>' +
-    '<div class="counter kpi" style="--i:' + (i++) + '"><label class="k" for="limit">Credit limit</label><input class="limit-in n" id="limit" type="number" min="0" step="0.01" inputmode="decimal" value="' + S.limit + '"><div class="s">Type a new limit any time. It saves on its own.</div></div>' +
     '<div class="counter kpi" style="--i:' + (i++) + '"><div class="k">Highest month</div><div class="v n" style="font-size:var(--t25)">' + (hi ? esc(ymLabel(hi.ym)) : 'None yet') + '</div><div class="s n">' + (hi ? money(hiT) + ' charged' : '') + '</div></div></div>';
   h += '<section class="counter" style="--i:4;margin-bottom:20px" aria-label="Charges by month"><h2>Charges by month</h2><p class="help" style="margin:0">Tap a month to open its card.</p><div class="chart">' +
     ms.map((m) => {
@@ -86,18 +94,18 @@ function pageDashboard() {
       return '<button class="col' + (m === hi ? ' hi' : '') + '" data-month="' + m.ym + '" type="button" aria-label="' + esc(ymLabel(m.ym)) + ' ' + money(t.total) + '">' + (m === hi ? '<span class="tag">Highest</span>' : '') + '<span class="cv">' + money0(t.total) + '</span><span class="bar" style="height:' + ht + 'px"><i class="p" style="height:' + ph + 'px"></i><i class="o" style="height:' + oh + 'px"></i></span><span class="cm">' + ymShort(m.ym) + '<small>' + m.ym.slice(2, 4) + '</small></span></button>';
     }).join('') + '</div><div class="legend"><span><i style="background:var(--olive)"></i>Paid</span><span><i style="background:var(--bronze)"></i>Outstanding</span></div></section>';
   h += '<div class="grid two" style="margin-bottom:20px"><section class="counter" style="--i:5"><div class="row-act" style="justify-content:space-between;margin-bottom:10px"><h2 style="margin:0">Installments</h2><button class="btn2" data-go="plans" type="button">Open installments</button></div>';
-  if (!S.plans.length) h += '<div class="empty">No installment plans yet.</div>';
-  S.plans.forEach((p) => {
-    const f = planInfo(S, p), pct = Math.round(f.done / p.months * 100);
+  if (!D.plans.length) h += '<div class="empty">No installment plans yet.</div>';
+  D.plans.forEach((p) => {
+    const f = planInfo(D, p), pct = Math.round(f.done / p.months * 100);
     h += '<div class="plan"><div class="row-act" style="justify-content:space-between"><b>' + esc(p.name) + '</b><span class="n">' + money(f.each) + ' / month</span></div><div class="prog" role="img" aria-label="' + f.done + ' of ' + p.months + ' paid"><i style="width:' + pct + '%"></i></div><div class="help">' + f.done + ' of ' + p.months + ' paid · ' + money(f.left) + ' left</div></div>';
   });
   h += '</section><section class="counter" style="--i:6"><h2>Who still owes</h2>';
-  const owing = people().filter((p) => p.owe > 0.005);
+  const owing = allPeople(D).filter((p) => p.owe > 0.005);
   if (!owing.length) h += '<div class="empty">Everyone is paid up.</div>';
   else h += '<div class="tw"><table><tbody>' + owing.map((p) => '<tr class="click" tabindex="0" data-person="' + esc(p.key) + '"><td>' + esc(p.name) + '</td><td class="r n"><b style="color:var(--bronze)">' + money(p.owe) + '</b></td></tr>').join('') + '</tbody></table></div>';
   h += '</section></div>';
   h += '<section class="counter" style="--i:7"><h2>All months</h2><div class="tw"><table><thead><tr><th>Month</th><th>Due</th><th class="r">Total</th><th class="r">Paid</th><th class="r">Outstanding</th><th>Status</th></tr></thead><tbody>' +
-    monthsDesc(S).map((m) => {
+    monthsDesc(D).map((m) => {
       const t = mtot(m), st = statusOf(t.paid, t.total);
       return '<tr class="click" tabindex="0" data-month="' + m.ym + '"><td>' + esc(ymLabel(m.ym)) + '</td><td>' + esc(fdue(m.due)) + '</td><td class="r n">' + money(t.total) + '</td><td class="r n">' + money(t.paid) + '</td><td class="r n">' + money(t.owe) + '</td><td>' + (m.ym > curYM && t.paid === 0 ? '<span class="pill soon">Upcoming</span>' : pill(st)) + '</td></tr>';
     }).join('') + '</tbody></table></div></section>';
@@ -105,19 +113,20 @@ function pageDashboard() {
 }
 
 function selectors() {
+  const D = cardData();
   let y0 = +curYM.slice(0, 4), y1 = y0;
-  S.months.forEach((m) => { const y = +m.ym.slice(0, 4); if (y < y0) y0 = y; if (y > y1) y1 = y; });
+  D.months.forEach((m) => { const y = +m.ym.slice(0, 4); if (y < y0) y0 = y; if (y > y1) y1 = y; });
   const cy = ui.ym.slice(0, 4), cm = ui.ym.slice(5, 7);
   let ys = ''; for (let y = y1; y >= y0; y--) ys += '<option value="' + y + '"' + (String(y) === cy ? ' selected' : '') + '>' + y + '</option>';
-  let mo = ''; for (let i = 1; i <= 12; i++) mo += '<option value="' + pad(i) + '"' + (pad(i) === cm ? ' selected' : '') + '>' + MON[i - 1] + (getM(S, cy + '-' + pad(i)) ? '' : ' (no bill)') + '</option>';
+  let mo = ''; for (let i = 1; i <= 12; i++) mo += '<option value="' + pad(i) + '"' + (pad(i) === cm ? ' selected' : '') + '>' + MON[i - 1] + (getM(D, cy + '-' + pad(i)) ? '' : ' (no bill)') + '</option>';
   return '<label class="f">Year<select id="yy">' + ys + '</select></label><label class="f">Month<select id="mm">' + mo + '</select></label>';
 }
 
 function pageMonth() {
-  const m = getM(S, ui.ym);
+  const D = cardData(), m = getM(D, ui.ym);
   let h = '<div class="ctrl">' + selectors() + '<button class="counter-btn" data-statements="1" type="button"' + (m ? '' : ' disabled') + '>Monthly statements</button><button class="btn2" data-act="charge" type="button">Add charge</button></div>';
   if (!m) return h + '<div class="counter"><div class="empty">There is no bill for ' + esc(ymLabel(ui.ym)) + ' yet.<br><br><button class="counter-btn" data-newym="' + ui.ym + '" type="button">Create this month</button></div></div>';
-  const t = mtot(m), avail = availableCredit(S, curYM), T = totals(S, curYM);
+  const t = mtot(m);
   h += '<section class="counter stmt"><div class="stmt-h"><div><div class="sign" style="color:var(--bronze)">Credit card bill</div><h2 style="margin:0">' + esc(ymLabel(m.ym)) + '</h2><div class="help">Due ' + esc(fdue(m.due)) + '</div></div>' + pill(statusOf(t.paid, t.total)) + '</div>';
   h += '<div class="srow head sign"><span>Transaction</span><span class="a">Amount</span><span>Person</span><span>Status</span></div>';
   if (!m.items.length) h += '<div class="empty">No charges in this month yet.</div>';
@@ -129,9 +138,7 @@ function pageMonth() {
   h += '<div class="tot"><div class="tr big"><span>Total credit amount for the month</span><span class="n">' + money(t.total) + '</span></div>' +
     '<div class="tr"><span>Paid</span><span class="n">' + money(t.paid) + '</span></div>' +
     '<div class="tr"><span>Outstanding this month</span><span class="n" style="color:var(--bronze);font-weight:700">' + money(t.owe) + '</span></div>' +
-    '<div class="tr"><label for="limit2">Credit limit</label><input id="limit2" class="n" type="number" min="0" step="0.01" inputmode="decimal" value="' + S.limit + '" style="width:150px;text-align:right"></div>' +
-    '<div class="tr big"><span>Available credit limit</span><span class="n" style="color:' + (avail < 0 ? 'var(--bronze)' : 'var(--olive)') + '">' + money(avail) + '</span></div>' +
-    '<div class="help">Available credit is the limit minus everything still unpaid on all months (' + money(T.owe) + ').</div></div></section>';
+    '</div></section>';
   return h;
 }
 
@@ -145,8 +152,8 @@ function lineHTML(l) {
 }
 
 function pagePeople() {
-  const q = ui.q.trim().toLowerCase(), list = people(), ms = monthsDesc(S);
-  let h = '<div class="pbar"><label class="f grow">Find<input id="q" type="search" placeholder="Person or product" value="' + esc(ui.q) + '"></label><label class="f">Month<select id="pm"><option value="all">All months</option>' + ms.map((m) => '<option value="' + m.ym + '"' + (ui.pm === m.ym ? ' selected' : '') + '>' + esc(ymLabel(m.ym)) + '</option>').join('') + '</select></label><button class="counter-btn" data-act="person" type="button">Add person</button></div>';
+  const D = cardData(), q = ui.q.trim().toLowerCase(), list = allPeople(D), ms = monthsDesc(D);
+  let h = '<div class="pbar"><label class="f grow">Find<input id="q" type="search" placeholder="Person or product" value="' + esc(ui.q) + '"></label><label class="f">Month<select id="pm"><option value="all">All months</option>' + ms.map((m) => '<option value="' + m.ym + '"' + (ui.pm === m.ym ? ' selected' : '') + '>' + esc(ymLabel(m.ym)) + '</option>').join('') + '</select></label><button class="counter-btn" data-act="person" type="button">Add person</button></div><p class="help">Deleting a person removes their name from the list and keeps their historical amounts and payment records under “Former person.”</p>';
   const cards = []; let i = 0;
   list.forEach((P) => {
     const nameHit = q && P.name.toLowerCase().indexOf(q) > -1;
@@ -163,7 +170,7 @@ function pagePeople() {
       c += '<div class="mg"><div class="mg-h"><span><b>' + esc(ymLabel(g.m.ym)) + '</b><br><span class="help">Due ' + esc(fshort(g.m.due)) + ' · ' + money(r2(gt)) + '</span></span>' + (gl > 0.005 ? '<button class="plaque" data-allpaid="' + g.m.ym + '|' + esc(P.key) + '" type="button">Mark all paid</button>' : '<span class="pill ok">Paid</span>') + '</div><div' + (expanded ? '' : ' hidden') + '>' + g.rows.map(lineHTML).join('') + '</div></div>';
     });
     if (!ls.length) c += '<p class="help" style="margin:0">No charges yet.</p>';
-    c += '<div class="row-act" style="margin-top:auto;justify-content:space-between"><button class="plaque" data-toggle-person="' + esc(P.key) + '" aria-expanded="' + expanded + '" type="button">' + (expanded ? 'Hide all items' : 'Show all items') + '</button><button class="plaque" data-charge-for="' + esc(P.name) + '" type="button">+ Add item</button><button class="btn2" data-soa="' + esc(P.key) + '" type="button">Statement (SOA)</button></div></article>';
+    c += '<div class="row-act" style="margin-top:auto;justify-content:space-between"><button class="plaque" data-toggle-person="' + esc(P.key) + '" aria-expanded="' + expanded + '" type="button">' + (expanded ? 'Hide all items' : 'Show all items') + '</button><button class="plaque" data-charge-for="' + esc(P.name) + '" type="button">+ Add item</button><button class="btn2" data-soa="' + esc(P.key) + '" type="button">Statement (SOA)</button><button class="plaque warn" data-delete-person="' + esc(P.key) + '" type="button">' + (ui.sure === 'person:' + P.key ? 'Tap again to remove' : 'Delete person') + '</button></div></article>';
     cards.push(c);
   });
   return h + (cards.length ? '<div class="pgrid">' + cards.join('') + '</div>' : '<div class="empty">Nothing matches.</div>');
@@ -171,7 +178,7 @@ function pagePeople() {
 
 /* statements: one receipt per person */
 function receiptHTML(st) {
-  const single = !!st.ym, m = single ? getM(S, st.ym) : null;
+  const D = cardData(), single = !!st.ym, m = single ? getM(D, st.ym) : null;
   const title = single ? 'Monthly statement' : 'Statement of account';
   const sub = single ? ymLabel(st.ym) + ' bill · due ' + fdue(m.due) : 'All unpaid charges';
   const rows = st.groups.map((g) => (single ? '' : '<li class="gl">' + esc(ymLabel(g.m.ym)) + ' · due ' + esc(fdue(g.m.due)) + '</li>') +
@@ -184,7 +191,7 @@ function receiptHTML(st) {
     '<p class="rfoot">' + (st.owe > 0.005 ? 'Please send ' + money(st.owe) + (single ? ' by ' + esc(due) : '') + '. Thank you!' : 'Thank you. Nothing more to pay.') + '</p></div></article>';
 }
 function receiptText(st) {
-  const single = !!st.ym, m = single ? getM(S, st.ym) : null;
+  const D = cardData(), single = !!st.ym, m = single ? getM(D, st.ym) : null;
   const out = ['CC TRACKER · ' + (single ? 'MONTHLY STATEMENT' : 'STATEMENT OF ACCOUNT'), 'Name: ' + st.name, single ? 'Bill: ' + ymLabel(st.ym) + ' (due ' + fdue(m.due) + ')' : 'All unpaid charges', ''];
   let n = 0;
   st.groups.forEach((g) => {
@@ -195,10 +202,10 @@ function receiptText(st) {
   return out.join('\n');
 }
 function pageStatements() {
-  const m = getM(S, ui.ym);
+  const D = cardData(), m = getM(D, ui.ym);
   let h = '<div class="ctrl">' + selectors() + '<label class="f" style="flex-direction:row;align-items:center;gap:8px;font-weight:400"><input id="onlyowing" type="checkbox"' + (ui.onlyOwing ? ' checked' : '') + '> Only people who still owe</label><button class="btn2" data-go="month" type="button">Back to monthly card</button></div>';
   if (!m) return h + '<div class="counter"><div class="empty">There is no bill for ' + esc(ymLabel(ui.ym)) + '.</div></div>';
-  const list = monthStatements(S, ui.ym).filter((st) => !ui.onlyOwing || st.owe > 0.005);
+  const list = monthStatements(D, ui.ym).filter((st) => !ui.onlyOwing || st.owe > 0.005);
   if (!list.length) return h + '<div class="counter"><div class="empty">' + (ui.onlyOwing ? 'Nobody owes anything for ' + esc(ymLabel(m.ym)) + '. Untick the box above to see everyone.' : 'No charges this month.') + '</div></div>';
   return h + '<div class="rgrid">' + list.map((st, i) => '<div class="rc" style="--i:' + Math.min(i, 8) + '">' + receiptHTML(st) + '<div class="row-act"><button class="btn2" data-copy="' + esc(st.key) + '" type="button">Copy as text</button>' + (st.owe > 0.005 ? '<button class="plaque" data-allpaid="' + m.ym + '|' + esc(st.key) + '" type="button">Mark all paid</button>' : '') + '</div></div>').join('') + '</div>';
 }
@@ -206,9 +213,11 @@ function pageStatements() {
 /* installments page */
 function pagePlans() {
   let h = '<div class="ctrl"><button class="counter-btn" data-act="plan" type="button">New installment</button></div>';
-  if (!S.plans.length) return h + '<div class="counter"><div class="empty">No installment plans yet.<br>Press New installment to add one.</div></div>';
-  h += '<div class="grid" style="gap:20px">' + S.plans.map((p, i) => {
-    const f = planInfo(S, p), pct = Math.round(f.done / p.months * 100), total = r2(p.total), expanded = ui.openPlans.has(p.id);
+  h = '<div class="ctrl"><button class="counter-btn" data-act="plan" type="button">New installment</button><label class="f">Sort installments<select id="planOrder"><option value="newest"' + (ui.planOrder === 'newest' ? ' selected' : '') + '>Newest to oldest</option><option value="oldest"' + (ui.planOrder === 'oldest' ? ' selected' : '') + '>Oldest to newest</option></select></label></div>';
+  const D = cardData(), plans = D.plans.slice().sort((a,b) => (a.start < b.start ? -1 : a.start > b.start ? 1 : a.name.localeCompare(b.name)) * (ui.planOrder === 'newest' ? -1 : 1));
+  if (!plans.length) return h + '<div class="counter"><div class="empty">No installment plans on this card yet.<br>Press New installment to add one.</div></div>';
+  h += '<div class="grid" style="gap:20px">' + plans.map((p, i) => {
+    const f = planInfo(D, p), pct = Math.round(f.done / p.months * 100), total = r2(p.total), expanded = ui.openPlans.has(p.id);
     return '<section class="counter" style="--i:' + Math.min(i, 8) + '"><div class="row-act" style="justify-content:space-between;align-items:flex-start"><div><h2 style="margin:0">' + esc(p.name) + '</h2><div class="help">Paid by ' + esc(p.payers.join(', ')) + ' · due on day ' + (p.day || 1) + ' of each month</div></div><button class="plaque warn" data-delplan="' + p.id + '" type="button">' + (ui.sure === 'plan:' + p.id ? 'Tap again to delete' : 'Delete plan') + '</button></div>' +
       '<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:14px 0"><div class="sum" style="display:block"><div><span class="help">Total price</span><b class="n">' + money(total) + '</b></div></div><div class="sum" style="display:block"><div><span class="help">Each month</span><b class="n">' + money(f.each) + '</b></div></div><div class="sum" style="display:block"><div><span class="help">Paid</span><b class="n">' + f.done + ' of ' + p.months + '</b></div></div><div class="sum" style="display:block"><div><span class="help">Still to pay</span><b class="n" style="color:' + (f.left > 0.005 ? 'var(--bronze)' : 'var(--olive)') + '">' + money(f.left) + '</b></div></div></div>' +
       '<div class="prog" role="img" aria-label="' + f.done + ' of ' + p.months + ' paid"><i style="width:' + pct + '%"></i></div>' +
@@ -228,7 +237,7 @@ function pageSettings() {
   const pct = Math.min(100, Math.max(0, used / limit * 100)), storage = ui.storageLoading ? '<p class="help">Loading database size…</p>' : u && !u.error ?
     '<div class="storage-numbers"><b>' + esc(formatBytes(used)) + '</b><span class="help"> of ' + esc(formatBytes(limit)) + '</span><span class="help storage-percent">' + pct.toFixed(2) + '%</span></div><div class="storage-track" role="progressbar" aria-label="Neon database storage used" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' + pct.toFixed(2) + '"><i class="' + (pct >= 90 ? 'storage-high' : pct >= 75 ? 'storage-warn' : '') + '" style="width:' + pct.toFixed(2) + '%"></i></div><p class="help" style="margin:8px 0 0">Database size estimate against the Neon Free plan 1 GB reference. Neon may take time to reclaim space after deletions.</p>' :
       '<p class="help">' + esc((u && u.error) || 'Storage usage is not available yet.') + '</p>';
-  const months = monthsDesc(S).map((m) => {
+  const months = monthsDesc(cardData()).map((m) => {
     const totalsForMonth = mtot(m), linked = m.items.some((it) => it.plan);
     return '<div class="settings-month"><div><b>' + esc(ymLabel(m.ym)) + '</b><div class="help">' + m.items.length + (m.items.length === 1 ? ' item' : ' items') + ' · ' + money(totalsForMonth.total) + ' total · ' + money(totalsForMonth.owe) + ' outstanding</div>' + (linked ? '<div class="help">Delete its linked installment plan before deleting this month.</div>' : '') + '</div><button class="plaque warn" data-delete-month="' + esc(m.ym) + '" type="button"' + (linked ? ' disabled title="Delete the linked installment plan first"' : '') + '>Delete month</button></div>';
   }).join('') || '<p class="help">No months to delete.</p>';
@@ -258,25 +267,25 @@ async function refreshStorage() {
 }
 
 function confirmDeleteMonth(ym) {
-  const m = getM(S, ym); if (!m) return;
+  const m = getM(S, ym, ui.cardId); if (!m) return;
   if (m.items.some((it) => it.plan)) { toast('Delete the linked installment plan first'); return; }
   const x = mtot(m);
-  openModal('Delete ' + esc(ymLabel(ym)) + '?', '<p>This removes ' + m.items.length + (m.items.length === 1 ? ' item' : ' items') + ' totaling <b>' + money(x.total) + '</b> from the tracker and its saved daily recovery copies. This cannot be undone.</p><div class="err" id="monthDeleteErr" role="alert"></div><div class="row-act"><button class="counter-btn" data-confirm-month="' + esc(ym) + '" type="button">Delete month</button><button class="btn2" data-closem="1" type="button">Cancel</button></div>');
+  openModal('Delete ' + esc(ymLabel(ym)) + '?', '<p>This removes ' + m.items.length + (m.items.length === 1 ? ' item' : ' items') + ' totaling <b>' + money(x.total) + '</b> from this card and its saved daily recovery copies. This cannot be undone.</p><div class="err" id="monthDeleteErr" role="alert"></div><div class="row-act"><button class="counter-btn" data-confirm-month="' + esc(ym) + '" type="button">Delete month</button><button class="btn2" data-closem="1" type="button">Cancel</button></div>');
 }
 
 async function deleteMonth(ym, button) {
-  const m = getM(S, ym); if (!m) { closeModal(); render(); return; }
+  const m = getM(S, ym, ui.cardId); if (!m) { closeModal(); render(); return; }
   button.disabled = true;
   const err = $('#monthDeleteErr');
   try {
     if (saving) while (saving) await new Promise((resolve) => setTimeout(resolve, 40));
     if (dirty) { clearTimeout(timer); await flush(); }
     if (dirty || conflict) { err.textContent = 'Your latest edits could not be saved. Resolve that first, then reload before deleting.'; return; }
-    const data = structuredClone(S); data.months = data.months.filter((item) => item.ym !== ym);
-    const r = await fetch('/api/month', { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ym, baseVersion: version, data }) });
+    const data = structuredClone(S); data.months = data.months.filter((item) => !(item.ym === ym && (item.cardId || 'card-default') === ui.cardId));
+    const r = await fetch('/api/month', { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ym, cardId: ui.cardId, baseVersion: version, data }) });
     const j = await r.json().catch(() => ({}));
     if (!r.ok) { err.textContent = j.error || 'Could not delete this month.'; if (r.status === 409) conflict = true; return; }
-    S = j.data; version = j.version; dirty = false; conflict = false; ui.storage = null; ui.ym = defaultYM(S, curYM); closeModal(); render(); toast(ymLabel(ym) + ' deleted');
+    S = j.data; version = j.version; dirty = false; conflict = false; ui.storage = null; ui.ym = defaultYM(cardData(), curYM); closeModal(); render(); toast(ymLabel(ym) + ' deleted');
   } catch { err.textContent = 'Cannot reach the server. The month was not deleted.'; }
   finally { if ($('#monthDeleteErr')) button.disabled = false; }
 }
@@ -292,13 +301,16 @@ function render() {
   if (!S) return;
   const cur = ui.page === 'statements' ? 'month' : ui.page;
   document.querySelectorAll('.dl').forEach((b) => { if (b.dataset.go === cur) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current'); });
+  const picker = $('#cardSelect');
+  if (picker) picker.innerHTML = S.cards.map((c) => '<option value="' + esc(c.id) + '"' + (c.id === ui.cardId ? ' selected' : '') + '>' + esc(c.name) + (c.bank ? ' · ' + esc(c.bank) : '') + '</option>').join('');
   const app = $('#app'); app.className = 'wrap' + (ui.anim ? ' anim' : ''); ui.anim = false;
-  app.innerHTML = bannerHTML() + (ui.page === 'month' ? pageMonth() : ui.page === 'people' ? pagePeople() : ui.page === 'statements' ? pageStatements() : ui.page === 'plans' ? pagePlans() : ui.page === 'settings' ? pageSettings() : pageDashboard());
+  const back = '<div class="page-top"><button class="btn2" data-back type="button">← Back</button><div><div class="sign">' + esc(activeCard().bank || 'Credit card') + '</div><h1>' + esc(activeCard().name) + '</h1></div></div>';
+  app.innerHTML = bannerHTML() + back + (ui.page === 'month' ? pageMonth() : ui.page === 'people' ? pagePeople() : ui.page === 'statements' ? pageStatements() : ui.page === 'plans' ? pagePlans() : ui.page === 'settings' ? pageSettings() : pageDashboard());
   $('#dept').classList.toggle('open', ui.menu); $('#menuBtn').setAttribute('aria-expanded', ui.menu);
   if ($('#soaBody')) renderSOA();
   if (ui.page === 'settings' && !ui.storage && !ui.storageLoading) refreshStorage();
 }
-function go(p) { ui.anim = true; ui.page = p; ui.sure = null; ui.menu = false; render(); window.scrollTo(0, 0); }
+function go(p) { if (ui.page !== p) ui.previous = ui.page; ui.anim = true; ui.page = p; ui.sure = null; ui.menu = false; render(); window.scrollTo(0, 0); }
 
 /* ---------- modals ---------- */
 function openModal(title, body, cls) {
@@ -331,9 +343,9 @@ function updateAssigned() {
   el.textContent = 'Assigned ' + money(sum / 100) + ' of ' + money(r2(tot)) + (diff === 0 ? ' · matches' : diff > 0 ? ' · ' + money(diff / 100) + ' left to assign' : ' · ' + money(-diff / 100) + ' too much');
 }
 function openCharge(itemId, person) {
-  const f = itemId ? findItem(S, itemId) : null, ms = monthsDesc(S);
+  const D = cardData(), f = itemId ? findItem(D, itemId) : null, ms = monthsDesc(D);
   if (!ms.length) { openMonth(curYM); return; }
-  const ym = f ? f.m.ym : (S.months.some((m) => m.ym === ui.ym) ? ui.ym : ms[0].ym);
+  const ym = f ? f.m.ym : (D.months.some((m) => m.ym === ui.ym) ? ui.ym : ms[0].ym);
   const rows = f ? f.it.shares.map((s) => ({ p: s.p, a: s.a })) : [{ p: person || '', a: '' }];
   openModal(f ? 'Split or edit bill' : 'Add charge', '<form id="fcharge" data-item="' + (itemId || '') + '">' +
     '<div class="two-f"><label class="f">Month<select id="mm2"' + (f ? ' disabled' : '') + '>' + ms.map((m) => '<option value="' + m.ym + '"' + (m.ym === ym ? ' selected' : '') + '>' + esc(ymLabel(m.ym)) + '</option>').join('') + '</select></label>' +
@@ -365,6 +377,9 @@ function openMonth(ym) {
 function openPerson() {
   openModal('Add person', '<form id="fperson"><label class="f">Name<input id="pname" required autocomplete="off"><span class="help">A card is made for this person. Add items to it afterward.</span></label><div class="row-act"><button class="counter-btn" type="submit">Create card</button><button class="btn2" data-closem="1" type="button">Cancel</button></div></form>');
 }
+function openCard() {
+  openModal('Add bank card', '<form id="fcard"><label class="f">Card name<input id="cname" required maxlength="60" autocomplete="off" placeholder="Example: Travel card"></label><label class="f" style="margin-top:12px">Bank or issuer<input id="cbank" required maxlength="60" autocomplete="off" placeholder="Example: BPI"></label><div class="help" style="margin:12px 0">New card starts empty. Your existing bills and payments stay on your current card.</div><div class="err" id="err" role="alert"></div><div class="row-act"><button class="counter-btn" type="submit">Add card</button><button class="btn2" data-closem="1" type="button">Cancel</button></div></form>');
+}
 
 /* statement of account for one person (the SOA button on a card) */
 function openSOA(key) {
@@ -395,7 +410,7 @@ function markPaid(lines) { lines.forEach((l) => { l.s.pd = l.s.a; }); save(); re
 document.addEventListener('click', (e) => {
   if (e.target.classList && e.target.classList.contains('scrim')) { closeModal(); return; }
   if (e.target.id === 'menuBtn') { ui.menu = !ui.menu; render(); return; }
-  const t = e.target.closest('[data-go],[data-month],[data-person],[data-act],[data-statements],[data-newym],[data-allpaid],[data-del],[data-split],[data-charge-for],[data-closem],[data-addrow],[data-rmrow],[data-equal],[data-copy],[data-delplan],[data-soa],[data-soacopy],[data-soapaid],[data-reload],[data-toggle-person],[data-toggle-plan],[data-storage-refresh],[data-delete-month],[data-confirm-month]');
+  const t = e.target.closest('[data-go],[data-back],[data-month],[data-person],[data-act],[data-statements],[data-newym],[data-allpaid],[data-del],[data-split],[data-charge-for],[data-closem],[data-addrow],[data-rmrow],[data-equal],[data-copy],[data-delplan],[data-soa],[data-soacopy],[data-soapaid],[data-reload],[data-toggle-person],[data-toggle-plan],[data-storage-refresh],[data-delete-month],[data-confirm-month],[data-delete-person]');
   if (!t) return; const d = t.dataset;
   if (d.reload) { location.reload(); return; }
   if (d.togglePerson) { ui.openPeople.has(d.togglePerson) ? ui.openPeople.delete(d.togglePerson) : ui.openPeople.add(d.togglePerson); render(); return; }
@@ -405,6 +420,15 @@ document.addEventListener('click', (e) => {
   if (d.confirmMonth) { deleteMonth(d.confirmMonth, t); return; }
   if (d.closem) { closeModal(); return; }
   if (d.go) { go(d.go); return; }
+  if (d.back !== undefined) { go(ui.previous === ui.page ? 'dashboard' : ui.previous); return; }
+  if (d.deletePerson) {
+    const P = allPeople(S).find((x) => x.key === d.deletePerson);
+    if (!P) return;
+    if (ui.sure !== 'person:' + d.deletePerson) { ui.sure = 'person:' + d.deletePerson; render(); return; }
+    P.lines.forEach((line) => { line.s.p = 'Former person'; });
+    S.people = (S.people || []).filter((n) => n.trim().toLowerCase() !== d.deletePerson);
+    ui.sure = null; save(); render(); toast('Person removed; transaction amounts and payment records were kept'); return;
+  }
   if (d.month) { ui.ym = d.month; go('month'); return; }
   if (d.person) { e.preventDefault(); ui.q = d.person; ui.pm = 'all'; go('people'); return; }
   if (d.statements) { go('statements'); return; }
@@ -413,6 +437,7 @@ document.addEventListener('click', (e) => {
   if (d.act === 'plan') { openPlan(); return; }
   if (d.act === 'newmonth') { openMonth(); return; }
   if (d.act === 'person') { openPerson(); return; }
+  if (d.act === 'addcard') { openCard(); return; }
   if (d.act === 'logout') { fetch('/api/logout', { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' }, body: '{}' }).finally(() => { S = null; showLogin(); }); return; }
   if (d.act === 'export') { const b = new Blob([JSON.stringify(S, null, 2)], { type: 'application/json' }), a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = 'cc-tracker-backup-' + now.toISOString().slice(0, 10) + '.json'; document.body.appendChild(a); a.click(); a.remove(); return; }
   if (d.chargeFor) { openCharge(null, d.chargeFor); return; }
@@ -420,7 +445,7 @@ document.addEventListener('click', (e) => {
   if (d.soa) { openSOA(d.soa); return; }
   if (d.soacopy) { const x = soaStatement(); if (x) copyText(receiptText(x.st)); return; }
   if (d.soapaid) { const x = soaStatement(); if (x) markPaid(x.st.groups.flatMap((g) => g.rows)); return; }
-  if (d.allpaid) { const a = d.allpaid.split('|'), m = getM(S, a[0]); const lines = []; m.items.forEach((it) => it.shares.forEach((s) => { if (s.p.trim().toLowerCase() === a[1]) lines.push({ s }); })); markPaid(lines); return; }
+  if (d.allpaid) { const a = d.allpaid.split('|'), m = getM(S, a[0], ui.cardId); const lines = []; m.items.forEach((it) => it.shares.forEach((s) => { if (s.p.trim().toLowerCase() === a[1]) lines.push({ s }); })); markPaid(lines); return; }
   if (d.del) { const p = d.del.split('|'); if (ui.sure === d.del) { const f = findItem(S, p[0]); f.it.shares.splice(+p[1], 1); if (!f.it.shares.length) f.m.items.splice(f.j, 1); else f.it.a = sumShares(f.it); ui.sure = null; save(); } else ui.sure = d.del; render(); return; }
   if (d.delplan) {
     if (ui.sure === 'plan:' + d.delplan) { const id = d.delplan; S.plans = S.plans.filter((x) => x.id !== id); S.months.forEach((m) => { m.items = m.items.flatMap((it) => { if (!it.plan || it.plan.id !== id) return [it]; if (iPaid(it) < it.a - 0.005) return []; const historical = { ...it }; delete historical.plan; return [historical]; }); }); ui.sure = null; save(); } else ui.sure = 'plan:' + d.delplan;
@@ -433,7 +458,7 @@ document.addEventListener('click', (e) => {
     if (!rs.length || !(tot > 0)) { $('#err').textContent = 'Enter the total bill and choose at least one person first.'; return; }
     $('#err').textContent = ''; writeRows(equalSplit(tot, rs.map((r) => r.p)).map((s) => ({ p: s.p, a: s.a }))); return;
   }
-  if (d.copy) { const st = monthStatements(S, ui.ym).find((x) => x.key === d.copy); if (st) copyText(receiptText(st)); return; }
+  if (d.copy) { const st = monthStatements(cardData(), ui.ym).find((x) => x.key === d.copy); if (st) copyText(receiptText(st)); return; }
 });
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && $('#modal').firstChild) { closeModal(); return; }
@@ -452,7 +477,8 @@ document.addEventListener('change', (e) => {
     else sh.n = t.value.trim();
     save(); render(); return;
   }
-  if (t.id === 'limit' || t.id === 'limit2') { const l = parseFloat(t.value); if (l >= 0) { S.limit = r2(l); save(); } render(); return; }
+  if (t.id === 'cardSelect') { ui.cardId = t.value; localStorage.setItem('cc-card-' + location.host, ui.cardId); ui.ym = ui.pm = defaultYM(cardData(), curYM); ui.storage = null; render(); return; }
+  if (t.id === 'planOrder') { ui.planOrder = t.value; render(); return; }
   if (t.id === 'yy' || t.id === 'mm') { ui.ym = $('#yy').value + '-' + $('#mm').value; render(); return; }
   if (t.id === 'pm') { ui.pm = t.value; render(); return; }
   if (t.id === 'onlyowing') { ui.onlyOwing = t.checked; render(); return; }
@@ -505,7 +531,7 @@ document.addEventListener('submit', (e) => {
       const fi = findItem(S, itemId);
       shares.forEach((s) => { const old = fi.it.shares.find((o) => o.p.trim().toLowerCase() === s.p.toLowerCase()); if (old) { s.pd = Math.min(old.pd || 0, s.a); s.n = old.n || ''; } });
       fi.it.d = d; fi.it.a = tot; fi.it.shares = shares;
-    } else { getM(S, $('#mm2').value).items.push({ id: uid(), d, a: tot, shares }); }
+    } else { getM(S, $('#mm2').value, ui.cardId).items.push({ id: uid(), d, a: tot, shares }); }
     save(); closeModal(); render(); return;
   }
   if (f.id === 'fplan') {
@@ -513,11 +539,12 @@ document.addEventListener('submit', (e) => {
     const payers = [...document.querySelectorAll('#modal input[name=payer]:checked')].map((x) => x.value);
     $('#pnewp').value.split(',').map((x) => x.trim()).filter(Boolean).forEach((x) => { if (!payers.some((p) => p.toLowerCase() === x.toLowerCase())) payers.push(x); });
     if (!name || !payers.length || !(total > 0) || !(n >= 2 && n <= 60) || !st || !(day >= 1 && day <= 28)) { err.textContent = 'Check every field. Choose who pays. Months must be from 2 to 60 and the due day from 1 to 28.'; return; }
-    const plan = { id: 'p' + uid(), name, payers, total, months: n, start: st, day, skip: null, gen: true };
+    const plan = { id: 'p' + uid(), name, payers, total, months: n, start: st, day, skip: null, gen: true, cardId: ui.cardId };
     S.plans.push(plan); generatePlan(S, plan); save(); closeModal(); ui.page = 'plans'; ui.anim = true; render(); toast('Installment plan created'); return;
   }
-  if (f.id === 'fmonth') { const due = $('#mdue').value; if (!due) return; const mo = ensureMonth(S, due.slice(0, 7), 1); mo.due = due; ui.ym = mo.ym; save(); closeModal(); go('month'); return; }
+  if (f.id === 'fmonth') { const due = $('#mdue').value; if (!due) return; const mo = ensureMonth(S, due.slice(0, 7), 1, ui.cardId); mo.due = due; ui.ym = mo.ym; save(); closeModal(); go('month'); return; }
   if (f.id === 'fperson') { const nm = $('#pname').value.trim(); if (!nm) return; S.people.push(nm); save(); closeModal(); ui.q = nm; ui.pm = 'all'; render(); }
+  if (f.id === 'fcard') { const name = $('#cname').value.trim(), bank = $('#cbank').value.trim(); if (!name || !bank) return; const id = 'card-' + uid(); S.cards.push({ id, name, bank }); ui.cardId = id; localStorage.setItem('cc-card-' + location.host, id); save(); closeModal(); ui.ym = ui.pm = defaultYM(cardData(), curYM); render(); toast('Card added'); return; }
 });
 
 boot();

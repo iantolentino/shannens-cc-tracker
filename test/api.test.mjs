@@ -49,6 +49,17 @@ test('password changes require authentication and the current password, then rep
   assert.equal((await call(state, { ctx, headers: { cookie } })).statusCode, 200, 'the current session remains active');
 });
 
+test('configured password reset replaces the stored hash without touching tracker data', async () => {
+  const store = memoryStore(), ctx = { env, store }, cookie = await signIn(ctx);
+  const before = await call(state, { ctx, headers: { cookie } });
+  const resetCtx = { env: { ...env, APP_PASSWORD: 'replacement password for test', APP_PASSWORD_RESET: 'true' }, store };
+  assert.equal((await call(login, { method: 'POST', body: { password: 'replacement password for test' }, ctx: resetCtx })).statusCode, 200);
+  assert.equal((await call(login, { method: 'POST', body: { password: env.APP_PASSWORD }, ctx })).statusCode, 401);
+  assert.equal((await call(login, { method: 'POST', body: { password: 'replacement password for test' }, ctx })).statusCode, 200);
+  const after = await call(state, { ctx, headers: { cookie } });
+  assert.deepEqual(after.body.data, before.body.data);
+});
+
 test('state: no cookie, a forged cookie, a tampered cookie and an expired cookie are all refused', async () => {
   const ctx = { env, store: memoryStore() };
   assert.equal((await call(state, { ctx })).statusCode, 401);
