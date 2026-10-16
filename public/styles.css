@@ -63,7 +63,8 @@ h2{font-size:var(--t20);margin-bottom:10px} h3{font-size:var(--t17)}
 .settings-month:last-child{border-bottom:0}
 .settings-month .help{margin-top:2px}
 .settings-month .plaque{flex-shrink:0;white-space:nowrap}
-.settings-month button[disabled]{opacity:.45;cursor:not-allowed}
+ .settings-month button[disabled]{opacity:.45;cursor:not-allowed}
+.settings-year-filter{max-width:240px;margin:16px 0}
 
 main{padding:28px 28px 80px;min-width:0}
 .wrap{max-width:1200px;margin:0 auto}
@@ -210,7 +211,9 @@ tr.click:focus-visible{outline-offset:-2px}
 .scrim{position:fixed;inset:0;background:rgba(43,42,36,.5);display:flex;align-items:flex-start;justify-content:center;padding:32px 16px;overflow-y:auto;z-index:50}
 .sheet{background:var(--limestone);border-radius:4px;width:100%;max-width:580px;box-shadow:0 12px 40px rgba(43,42,36,.3)}
 .sheet-h{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:18px 26px 14px;border-bottom:6px double var(--olive)}
-.sheet form{padding:20px 26px 26px;display:grid;gap:14px}
+ .sheet form{padding:20px 26px 26px;display:grid;gap:14px}
+.sheet .card-remove-copy{margin:0;padding:20px 26px 8px;line-height:1.5;overflow-wrap:anywhere}
+.sheet .card-remove-actions{padding:8px 26px 24px}
 .two-f{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px}
 .prow{display:grid;grid-template-columns:minmax(0,1fr) 120px 32px;gap:8px;align-items:center;margin-bottom:8px}
 .err{color:var(--bronze);font-weight:600;font-size:var(--t15);min-height:1.2em}
@@ -241,6 +244,10 @@ tr.click:focus-visible{outline-offset:-2px}
   .dept .plaque.sign-out{color:#ff9b91;border-color:#ff9b91}
   .dept .counter-btn{background:var(--limestone);color:var(--olive-dk)}
   .dept .btn2{background:transparent;color:var(--limestone);border-color:var(--limestone)}
+  .dept .card-switcher{background:var(--limestone);color:var(--ink);border-color:var(--limestone)}
+  .dept .card-switcher .f{color:var(--ink)}
+  .dept .card-switcher select{background-color:#fff;color:var(--ink);border-color:var(--olive-dk)}
+  .dept .card-switcher .plaque{background:var(--olive-dk);color:var(--limestone);border-color:var(--olive-dk)}
   
   main{padding:20px 16px 72px}
   .two{grid-template-columns:minmax(0,1fr)}
@@ -251,6 +258,9 @@ tr.click:focus-visible{outline-offset:-2px}
   .settings-grid{gap:14px}
   .settings-month{align-items:flex-start;gap:10px}
   .settings-month>div{min-width:0;overflow-wrap:anywhere}
+  .sheet-h{padding-inline:18px}
+  .sheet .card-remove-copy{padding:18px 18px 8px}
+  .sheet .card-remove-actions{padding:8px 18px 20px}
   .storage-numbers>b{font-size:var(--t20)}
 }
 @media (max-width:380px){.settings-month{flex-direction:column;align-items:flex-start}.settings-month .plaque{margin-top:2px}}

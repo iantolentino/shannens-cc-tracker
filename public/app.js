@@ -13,7 +13,7 @@ const curYM = now.getFullYear() + '-' + pad(now.getMonth() + 1);
 
 let S = null;        // all cards and data
 let version = 0;     // version of the data on the server
-const ui = { anim: true, page: 'dashboard', previous: 'dashboard', cardId: 'card-default', planOrder: 'newest', ym: curYM, pm: 'all', q: '', sure: null, onlyOwing: true, menu: false, banner: null, soa: null, openPeople: new Set(), openPlans: new Set(), storage: null, storageLoading: false };
+const ui = { anim: true, page: 'dashboard', previous: 'dashboard', cardId: 'card-default', planOrder: 'newest', ym: curYM, pm: 'all', q: '', sure: null, onlyOwing: true, menu: false, banner: null, soa: null, openPeople: new Set(), openPlans: new Set(), storage: null, storageLoading: false, settingsYear: null };
 
 /* ---------- talking to the server ---------- */
 let dirty = false, saving = false, timer = null, halted = false, conflict = false;
@@ -88,7 +88,7 @@ function pageDashboard() {
   ms.forEach((m) => { const t = mtot(m).total; if (t > hiT) { hiT = t; hi = m; } if (t > max) max = t; });
   let i = 0;
   let h = '<div class="grid kpis">' +
-    '<div class="counter kpi" style="--i:' + (i++) + '"><div class="k">Outstanding balance</div><div class="v owe n">' + money(T.owe) + '</div><div class="s">Billed so far ' + money(T.past) + '<br>Upcoming installments ' + money(T.fut) + '</div></div>' +
+    '<div class="counter kpi" style="--i:' + (i++) + '"><div class="k">Outstanding balance</div><div class="v owe n">' + money(T.owe) + '</div><div class="s">Unpaid on current and past bills ' + money(T.past) + '<br>Upcoming installments ' + money(T.fut) + '</div></div>' +
     '<div class="counter kpi" style="--i:' + (i++) + '"><div class="k">Highest month</div><div class="v n" style="font-size:var(--t25)">' + (hi ? esc(ymLabel(hi.ym)) : 'None yet') + '</div><div class="s n">' + (hi ? money(hiT) + ' charged' : '') + '</div></div></div>';
   h += '<section class="counter" style="--i:4;margin-bottom:20px" aria-label="Charges by month"><h2>Charges by month</h2><p class="help" style="margin:0">Tap a month to open its card.</p><div class="chart">' +
     ms.map((m) => {
@@ -156,7 +156,7 @@ function lineHTML(l) {
 
 function pagePeople() {
   const D = cardData(), q = ui.q.trim().toLowerCase(), list = allPeople(D), ms = monthsDesc(D);
-  let h = '<div class="pbar"><label class="f grow">Find<input id="q" type="search" placeholder="Person or product" value="' + esc(ui.q) + '"></label><label class="f">Month<select id="pm"><option value="all">All months</option>' + ms.map((m) => '<option value="' + m.ym + '"' + (ui.pm === m.ym ? ' selected' : '') + '>' + esc(ymLabel(m.ym)) + '</option>').join('') + '</select></label><button class="counter-btn" data-act="person" type="button">Add person</button></div><p class="help">Deleting a person removes their name from the list and keeps their historical amounts and payment records under “Former person.”</p>';
+  let h = '<div class="pbar"><label class="f grow">Find<input id="q" type="search" placeholder="Person or product" value="' + esc(ui.q) + '"></label><label class="f">Month<select id="pm"><option value="all">All months</option>' + ms.map((m) => '<option value="' + m.ym + '"' + (ui.pm === m.ym ? ' selected' : '') + '>' + esc(ymLabel(m.ym)) + '</option>').join('') + '</select></label><button class="counter-btn" data-act="person" type="button">Add person</button></div>';
   const cards = []; let i = 0;
   list.forEach((P) => {
     const nameHit = q && P.name.toLowerCase().indexOf(q) > -1;
@@ -240,10 +240,13 @@ function pageSettings() {
   const pct = Math.min(100, Math.max(0, used / limit * 100)), storage = ui.storageLoading ? '<p class="help">Loading database size…</p>' : u && !u.error ?
     '<div class="storage-numbers"><b>' + esc(formatBytes(used)) + '</b><span class="help"> of ' + esc(formatBytes(limit)) + '</span><span class="help storage-percent">' + pct.toFixed(2) + '%</span></div><div class="storage-track" role="progressbar" aria-label="Neon database storage used" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' + pct.toFixed(2) + '"><i class="' + (pct >= 90 ? 'storage-high' : pct >= 75 ? 'storage-warn' : '') + '" style="width:' + pct.toFixed(2) + '%"></i></div><p class="help" style="margin:8px 0 0">Database size estimate against the Neon Free plan 1 GB reference. Neon may take time to reclaim space after deletions.</p>' :
       '<p class="help">' + esc((u && u.error) || 'Storage usage is not available yet.') + '</p>';
-  const months = monthsDesc(cardData()).map((m) => {
+  const cardMonths = monthsDesc(cardData());
+  const settingsYears = [...new Set([curYM.slice(0, 4), ...cardMonths.map((m) => m.ym.slice(0, 4))])].sort().reverse();
+  const selectedYear = ui.settingsYear || curYM.slice(0, 4);
+  const months = cardMonths.filter((m) => selectedYear === 'all' || m.ym.slice(0, 4) === selectedYear).map((m) => {
     const totalsForMonth = mtot(m), linked = m.items.some((it) => it.plan);
     return '<div class="settings-month"><div><b>' + esc(ymLabel(m.ym)) + '</b><div class="help">' + m.items.length + (m.items.length === 1 ? ' item' : ' items') + ' · ' + money(totalsForMonth.total) + ' total · ' + money(totalsForMonth.owe) + ' outstanding</div>' + (linked ? '<div class="help">Delete its linked installment plan before deleting this month.</div>' : '') + '</div><button class="plaque warn" data-delete-month="' + esc(m.ym) + '" type="button"' + (linked ? ' disabled title="Delete the linked installment plan first"' : '') + '>Delete month</button></div>';
-  }).join('') || '<p class="help">No months to delete.</p>';
+  }).join('') || '<p class="help">No months found for this year.</p>';
   const cardRows = S.cards.map((c) => {
     const monthsOnCard = S.months.filter((m) => (m.cardId || 'card-default') === c.id).length;
     const plansOnCard = S.plans.filter((p) => (p.cardId || 'card-default') === c.id).length;
@@ -259,7 +262,7 @@ function pageSettings() {
     '<div class="err" id="passwordErr" role="alert"></div><div class="row-act" style="margin-top:16px"><button class="counter-btn" type="submit">Update password</button></div></form></section>' +
     '<section class="counter settings-storage"><div class="row-act" style="justify-content:space-between"><div><div class="sign" style="color:var(--bronze);margin-bottom:8px">Storage</div><h2 style="margin:0">Database usage</h2></div><button class="plaque" data-storage-refresh type="button">Refresh</button></div>' + storage + '</section>' +
     '<section class="counter settings-cards"><div class="sign" style="color:var(--bronze);margin-bottom:8px">Cards</div><h2>Manage bank cards</h2><p class="help">Removing a card hides it from the card selector. Its months, transactions, payment history, and installment plans stay saved and can be restored here.</p><div class="settings-month-list">' + cardRows + '</div></section>' +
-    '<section class="counter settings-months"><div class="sign" style="color:var(--bronze);margin-bottom:8px">Data maintenance</div><h2>Delete a month</h2><p class="help">Deleting a month permanently removes its transactions and removes that month from saved daily recovery copies. Download a backup first if you may need it later. Months containing installment payments must have their linked plan deleted first.</p><div class="settings-month-list">' + months + '</div></section></div>';
+    '<section class="counter settings-months"><div class="sign" style="color:var(--bronze);margin-bottom:8px">Data maintenance</div><h2>Delete a month</h2><p class="help">Deleting a month permanently removes its transactions and removes that month from saved daily recovery copies. Download a backup first if you may need it later. Months containing installment payments must have their linked plan deleted first.</p><label class="f settings-year-filter">Show months from<select id="settingsYear"><option value="all"' + (selectedYear === 'all' ? ' selected' : '') + '>All years</option>' + settingsYears.map((year) => '<option value="' + year + '"' + (selectedYear === year ? ' selected' : '') + '>' + year + (year === curYM.slice(0, 4) ? ' (current year)' : '') + '</option>').join('') + '</select></label><div class="settings-month-list">' + months + '</div></section></div>';
 }
 
 function formatBytes(bytes) {
@@ -400,7 +403,7 @@ function confirmDeleteCard(cardId) {
   if (activeCards().length <= 1) { toast('At least one card must remain active'); return; }
   const monthCount = S.months.filter((m) => (m.cardId || 'card-default') === cardId).length;
   const planCount = S.plans.filter((p) => p.cardId === cardId).length;
-  openModal('Remove ' + esc(card.name) + '?', '<p>This hides the card from the selector. <b>No data will be deleted.</b> Its ' + monthCount + ' month record' + (monthCount === 1 ? '' : 's') + ' and ' + planCount + ' installment plan' + (planCount === 1 ? '' : 's') + ' will be preserved and the card can be restored in Settings.</p><div class="row-act"><button class="counter-btn" data-confirm-card="' + esc(cardId) + '" type="button">Remove card</button><button class="btn2" data-closem="1" type="button">Cancel</button></div>');
+  openModal('Remove ' + esc(card.name) + '?', '<p class="card-remove-copy">This hides the card from the selector. <b>No data will be deleted.</b> Its ' + monthCount + ' month record' + (monthCount === 1 ? '' : 's') + ' and ' + planCount + ' installment plan' + (planCount === 1 ? '' : 's') + ' will be preserved and the card can be restored in Settings.</p><div class="row-act card-remove-actions"><button class="counter-btn" data-confirm-card="' + esc(cardId) + '" type="button">Remove card</button><button class="btn2" data-closem="1" type="button">Cancel</button></div>');
 }
 
 function removeCard(cardId) {
@@ -517,7 +520,7 @@ document.addEventListener('change', (e) => {
     else sh.n = t.value.trim();
     save(); render(); return;
   }
-  if (t.id === 'cardSelect') { ui.cardId = t.value; localStorage.setItem('cc-card-' + location.host, ui.cardId); ui.ym = ui.pm = defaultYM(cardData(), curYM); ui.storage = null; render(); return; }
+  if (t.id === 'cardSelect') { ui.cardId = t.value; localStorage.setItem('cc-card-' + location.host, ui.cardId); ui.ym = ui.pm = defaultYM(cardData(), curYM); ui.settingsYear = null; ui.storage = null; render(); return; }
   if (t.id === 'planOrder') { ui.planOrder = t.value; render(); return; }
   if (t.id === 'yy' || t.id === 'mm') { ui.ym = $('#yy').value + '-' + $('#mm').value; render(); return; }
   if (t.id === 'pm') { ui.pm = t.value; render(); return; }
