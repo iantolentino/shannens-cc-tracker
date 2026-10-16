@@ -60,10 +60,11 @@ async function boot() {
     S.cards = S.cards || [{ id: 'card-default', name: 'Primary card', bank: 'Existing card' }];
     let migrated = false;
     if (!S.cards.some((c) => c.id === 'card-default')) S.cards.unshift({ id: 'card-default', name: 'Primary card', bank: 'Existing card' });
+    if (!S.cards.some((c) => !c.archived)) S.cards[0].archived = false;
     S.months.forEach((m) => { if (!m.cardId) { m.cardId = 'card-default'; migrated = true; } });
     S.plans.forEach((p) => { if (!p.cardId) { p.cardId = 'card-default'; migrated = true; } });
     ui.cardId = localStorage.getItem('cc-card-' + location.host) || 'card-default';
-    if (!S.cards.some((c) => c.id === ui.cardId)) ui.cardId = S.cards[0].id;
+    if (!S.cards.some((c) => c.id === ui.cardId && !c.archived)) ui.cardId = S.cards.find((c) => !c.archived).id;
     if (migrated || !j.data.cards) save();
     ui.ym = ui.pm = defaultYM(S, curYM);
     $('#boot').hidden = true; $('#login').hidden = true; $('#shell').hidden = false;
@@ -77,7 +78,8 @@ const money0 = (n) => (n >= 1000 ? '₱' + (n / 1000).toFixed(1) + 'k' : '₱' +
 const people = () => allPeople(cardData());
 const nameList = () => people().map((p) => p.name).sort((a, b) => a.localeCompare(b));
 const cardData = () => ({ ...S, months: S.months.filter((m) => (m.cardId || 'card-default') === ui.cardId), plans: S.plans.filter((p) => (p.cardId || 'card-default') === ui.cardId) });
-const activeCard = () => S.cards.find((c) => c.id === ui.cardId) || S.cards[0];
+const activeCards = () => S.cards.filter((c) => !c.archived);
+const activeCard = () => S.cards.find((c) => c.id === ui.cardId && !c.archived) || activeCards()[0] || S.cards[0];
 
 /* ---------- pages ---------- */
 function pageDashboard() {
@@ -104,11 +106,12 @@ function pageDashboard() {
   if (!owing.length) h += '<div class="empty">Everyone is paid up.</div>';
   else h += '<div class="tw"><table><tbody>' + owing.map((p) => '<tr class="click" tabindex="0" data-person="' + esc(p.key) + '"><td>' + esc(p.name) + '</td><td class="r n"><b style="color:var(--bronze)">' + money(p.owe) + '</b></td></tr>').join('') + '</tbody></table></div>';
   h += '</section></div>';
-  h += '<section class="counter" style="--i:7"><h2>All months</h2><div class="tw"><table><thead><tr><th>Month</th><th>Due</th><th class="r">Total</th><th class="r">Paid</th><th class="r">Outstanding</th><th>Status</th></tr></thead><tbody>' +
-    monthsDesc(D).map((m) => {
+  const outstandingMonths = monthsDesc(D).filter((m) => mtot(m).owe > 0.005);
+  h += '<section class="counter" style="--i:7"><h2>Months with outstanding balances</h2><div class="tw"><table><thead><tr><th>Month</th><th>Due</th><th class="r">Total</th><th class="r">Paid</th><th class="r">Outstanding</th><th>Status</th></tr></thead><tbody>' +
+    (outstandingMonths.length ? outstandingMonths.map((m) => {
       const t = mtot(m), st = statusOf(t.paid, t.total);
       return '<tr class="click" tabindex="0" data-month="' + m.ym + '"><td>' + esc(ymLabel(m.ym)) + '</td><td>' + esc(fdue(m.due)) + '</td><td class="r n">' + money(t.total) + '</td><td class="r n">' + money(t.paid) + '</td><td class="r n">' + money(t.owe) + '</td><td>' + (m.ym > curYM && t.paid === 0 ? '<span class="pill soon">Upcoming</span>' : pill(st)) + '</td></tr>';
-    }).join('') + '</tbody></table></div></section>';
+    }).join('') : '<tr><td colspan="6" class="empty">There are no months with an outstanding balance.</td></tr>') + '</tbody></table></div></section>';
   return h;
 }
 
@@ -241,12 +244,21 @@ function pageSettings() {
     const totalsForMonth = mtot(m), linked = m.items.some((it) => it.plan);
     return '<div class="settings-month"><div><b>' + esc(ymLabel(m.ym)) + '</b><div class="help">' + m.items.length + (m.items.length === 1 ? ' item' : ' items') + ' · ' + money(totalsForMonth.total) + ' total · ' + money(totalsForMonth.owe) + ' outstanding</div>' + (linked ? '<div class="help">Delete its linked installment plan before deleting this month.</div>' : '') + '</div><button class="plaque warn" data-delete-month="' + esc(m.ym) + '" type="button"' + (linked ? ' disabled title="Delete the linked installment plan first"' : '') + '>Delete month</button></div>';
   }).join('') || '<p class="help">No months to delete.</p>';
+  const cardRows = S.cards.map((c) => {
+    const monthsOnCard = S.months.filter((m) => (m.cardId || 'card-default') === c.id).length;
+    const plansOnCard = S.plans.filter((p) => (p.cardId || 'card-default') === c.id).length;
+    const records = monthsOnCard + ' ' + (monthsOnCard === 1 ? 'month' : 'months') + ' · ' + plansOnCard + ' ' + (plansOnCard === 1 ? 'installment plan' : 'installment plans');
+    if (c.archived) return '<div class="settings-month"><div><b>' + esc(c.name) + '</b><div class="help">' + esc(c.bank || 'Credit card') + ' · Removed from selector · ' + records + ' preserved</div></div><button class="plaque" data-restore-card="' + esc(c.id) + '" type="button">Restore card</button></div>';
+    const lastCard = activeCards().length === 1;
+    return '<div class="settings-month"><div><b>' + esc(c.name) + (c.id === ui.cardId ? ' <span class="help">(current)</span>' : '') + '</b><div class="help">' + esc(c.bank || 'Credit card') + ' · ' + records + ' preserved</div></div><button class="plaque warn" data-delete-card="' + esc(c.id) + '" type="button"' + (lastCard ? ' disabled title="At least one card must remain active"' : '') + '>Remove card</button></div>';
+  }).join('');
   return '<div class="settings-grid"><section class="counter settings-account"><div class="sign" style="color:var(--bronze);margin-bottom:8px">Account</div><h2>Change master password</h2><p class="help" style="margin:0 0 18px">Your password is stored as a one-way hash. You will stay signed in on this device after changing it.</p>' +
     '<form id="fpassword" autocomplete="on"><label class="f">Current password<input name="currentPassword" type="password" autocomplete="current-password" required></label>' +
     '<label class="f" style="margin-top:12px">New password<input name="newPassword" type="password" autocomplete="new-password" minlength="8" required><span class="help">Use at least 8 characters.</span></label>' +
     '<label class="f" style="margin-top:12px">Confirm new password<input name="confirmPassword" type="password" autocomplete="new-password" minlength="8" required></label>' +
     '<div class="err" id="passwordErr" role="alert"></div><div class="row-act" style="margin-top:16px"><button class="counter-btn" type="submit">Update password</button></div></form></section>' +
     '<section class="counter settings-storage"><div class="row-act" style="justify-content:space-between"><div><div class="sign" style="color:var(--bronze);margin-bottom:8px">Storage</div><h2 style="margin:0">Database usage</h2></div><button class="plaque" data-storage-refresh type="button">Refresh</button></div>' + storage + '</section>' +
+    '<section class="counter settings-cards"><div class="sign" style="color:var(--bronze);margin-bottom:8px">Cards</div><h2>Manage bank cards</h2><p class="help">Removing a card hides it from the card selector. Its months, transactions, payment history, and installment plans stay saved and can be restored here.</p><div class="settings-month-list">' + cardRows + '</div></section>' +
     '<section class="counter settings-months"><div class="sign" style="color:var(--bronze);margin-bottom:8px">Data maintenance</div><h2>Delete a month</h2><p class="help">Deleting a month permanently removes its transactions and removes that month from saved daily recovery copies. Download a backup first if you may need it later. Months containing installment payments must have their linked plan deleted first.</p><div class="settings-month-list">' + months + '</div></section></div>';
 }
 
@@ -302,11 +314,12 @@ function render() {
   const cur = ui.page === 'statements' ? 'month' : ui.page;
   document.querySelectorAll('.dl').forEach((b) => { if (b.dataset.go === cur) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current'); });
   const picker = $('#cardSelect');
-  if (picker) picker.innerHTML = S.cards.map((c) => '<option value="' + esc(c.id) + '"' + (c.id === ui.cardId ? ' selected' : '') + '>' + esc(c.name) + (c.bank ? ' · ' + esc(c.bank) : '') + '</option>').join('');
+  if (picker) picker.innerHTML = activeCards().map((c) => '<option value="' + esc(c.id) + '"' + (c.id === ui.cardId ? ' selected' : '') + '>' + esc(c.name) + (c.bank ? ' · ' + esc(c.bank) : '') + '</option>').join('');
   const app = $('#app'); app.className = 'wrap' + (ui.anim ? ' anim' : ''); ui.anim = false;
-  const back = '<div class="page-top"><button class="btn2" data-back type="button">← Back</button><div><div class="sign">' + esc(activeCard().bank || 'Credit card') + '</div><h1>' + esc(activeCard().name) + '</h1></div></div>';
+  const back = '<div class="page-top">' + (ui.page === 'dashboard' ? '' : '<button class="btn2" data-back type="button">← Back</button>') + '<div><div class="sign">' + esc(activeCard().bank || 'Credit card') + '</div><h1>' + esc(activeCard().name) + '</h1></div></div>';
   app.innerHTML = bannerHTML() + back + (ui.page === 'month' ? pageMonth() : ui.page === 'people' ? pagePeople() : ui.page === 'statements' ? pageStatements() : ui.page === 'plans' ? pagePlans() : ui.page === 'settings' ? pageSettings() : pageDashboard());
   $('#dept').classList.toggle('open', ui.menu); $('#menuBtn').setAttribute('aria-expanded', ui.menu);
+  $('#menuBackdrop').hidden = !ui.menu;
   if ($('#soaBody')) renderSOA();
   if (ui.page === 'settings' && !ui.storage && !ui.storageLoading) refreshStorage();
 }
@@ -381,6 +394,28 @@ function openCard() {
   openModal('Add bank card', '<form id="fcard"><label class="f">Card name<input id="cname" required maxlength="60" autocomplete="off" placeholder="Example: Travel card"></label><label class="f" style="margin-top:12px">Bank or issuer<input id="cbank" required maxlength="60" autocomplete="off" placeholder="Example: BPI"></label><div class="help" style="margin:12px 0">New card starts empty. Your existing bills and payments stay on your current card.</div><div class="err" id="err" role="alert"></div><div class="row-act"><button class="counter-btn" type="submit">Add card</button><button class="btn2" data-closem="1" type="button">Cancel</button></div></form>');
 }
 
+function confirmDeleteCard(cardId) {
+  const card = S.cards.find((c) => c.id === cardId && !c.archived);
+  if (!card) return;
+  if (activeCards().length <= 1) { toast('At least one card must remain active'); return; }
+  const monthCount = S.months.filter((m) => (m.cardId || 'card-default') === cardId).length;
+  const planCount = S.plans.filter((p) => p.cardId === cardId).length;
+  openModal('Remove ' + esc(card.name) + '?', '<p>This hides the card from the selector. <b>No data will be deleted.</b> Its ' + monthCount + ' month record' + (monthCount === 1 ? '' : 's') + ' and ' + planCount + ' installment plan' + (planCount === 1 ? '' : 's') + ' will be preserved and the card can be restored in Settings.</p><div class="row-act"><button class="counter-btn" data-confirm-card="' + esc(cardId) + '" type="button">Remove card</button><button class="btn2" data-closem="1" type="button">Cancel</button></div>');
+}
+
+function removeCard(cardId) {
+  if (activeCards().length <= 1) { closeModal(); toast('At least one card must remain active'); return; }
+  const card = S.cards.find((c) => c.id === cardId && !c.archived);
+  if (!card) { closeModal(); return; }
+  card.archived = true;
+  if (ui.cardId === cardId) {
+    ui.cardId = activeCards()[0].id;
+    localStorage.setItem('cc-card-' + location.host, ui.cardId);
+    ui.ym = ui.pm = defaultYM(cardData(), curYM);
+  }
+  ui.storage = null; closeModal(); save(); render(); toast('Card removed; all records were preserved');
+}
+
 /* statement of account for one person (the SOA button on a card) */
 function openSOA(key) {
   const P = people().find((x) => x.key === key); if (!P) return;
@@ -410,14 +445,18 @@ function markPaid(lines) { lines.forEach((l) => { l.s.pd = l.s.a; }); save(); re
 document.addEventListener('click', (e) => {
   if (e.target.classList && e.target.classList.contains('scrim')) { closeModal(); return; }
   if (e.target.id === 'menuBtn') { ui.menu = !ui.menu; render(); return; }
-  const t = e.target.closest('[data-go],[data-back],[data-month],[data-person],[data-act],[data-statements],[data-newym],[data-allpaid],[data-del],[data-split],[data-charge-for],[data-closem],[data-addrow],[data-rmrow],[data-equal],[data-copy],[data-delplan],[data-soa],[data-soacopy],[data-soapaid],[data-reload],[data-toggle-person],[data-toggle-plan],[data-storage-refresh],[data-delete-month],[data-confirm-month],[data-delete-person]');
+  const t = e.target.closest('[data-menu-close],[data-go],[data-back],[data-month],[data-person],[data-act],[data-statements],[data-newym],[data-allpaid],[data-del],[data-split],[data-charge-for],[data-closem],[data-addrow],[data-rmrow],[data-equal],[data-copy],[data-delplan],[data-soa],[data-soacopy],[data-soapaid],[data-reload],[data-toggle-person],[data-toggle-plan],[data-storage-refresh],[data-delete-month],[data-confirm-month],[data-delete-person],[data-delete-card],[data-confirm-card],[data-restore-card]');
   if (!t) return; const d = t.dataset;
+  if (d.menuClose !== undefined) { ui.menu = false; render(); return; }
   if (d.reload) { location.reload(); return; }
   if (d.togglePerson) { ui.openPeople.has(d.togglePerson) ? ui.openPeople.delete(d.togglePerson) : ui.openPeople.add(d.togglePerson); render(); return; }
   if (d.togglePlan) { ui.openPlans.has(d.togglePlan) ? ui.openPlans.delete(d.togglePlan) : ui.openPlans.add(d.togglePlan); render(); return; }
   if (d.storageRefresh !== undefined) { ui.storage = null; refreshStorage(); return; }
   if (d.deleteMonth) { confirmDeleteMonth(d.deleteMonth); return; }
   if (d.confirmMonth) { deleteMonth(d.confirmMonth, t); return; }
+  if (d.deleteCard) { confirmDeleteCard(d.deleteCard); return; }
+  if (d.confirmCard) { removeCard(d.confirmCard); return; }
+  if (d.restoreCard) { const card = S.cards.find((c) => c.id === d.restoreCard && c.archived); if (card) { card.archived = false; save(); render(); toast('Card restored'); } return; }
   if (d.closem) { closeModal(); return; }
   if (d.go) { go(d.go); return; }
   if (d.back !== undefined) { go(ui.previous === ui.page ? 'dashboard' : ui.previous); return; }
@@ -462,6 +501,7 @@ document.addEventListener('click', (e) => {
 });
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && $('#modal').firstChild) { closeModal(); return; }
+  if (e.key === 'Escape' && ui.menu) { ui.menu = false; render(); return; }
   if ((e.key === 'Enter' || e.key === ' ') && e.target.matches && e.target.matches('tr.click')) { e.preventDefault(); e.target.click(); }
 });
 document.addEventListener('change', (e) => {
