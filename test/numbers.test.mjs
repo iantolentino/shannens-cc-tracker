@@ -58,7 +58,6 @@ test('installment plans add up to the exact price', () => {
 test('remaining installments and balances', () => {
   const T = L.totals(seed, '2026-10');
   eq(T.owe, 30336.26, 'outstanding'); eq(T.past, 0, 'billed so far'); eq(T.fut, 30336.26, 'upcoming');
-  eq(L.availableCredit(seed, '2026-10'), 90000 - 30336.26, 'available credit');
   const sharp = L.planInfo(seed, seed.plans[0]), ipad = L.planInfo(seed, seed.plans[1]);
   assert.equal(sharp.done, 3); assert.equal(ipad.done, 7);
   eq(sharp.left, 20291.26, 'Sharp left'); eq(ipad.left, 10045, 'iPad left');
@@ -135,4 +134,16 @@ test('month helpers', () => {
   assert.equal(L.addM('2026-11', 3), '2027-02'); assert.equal(L.addM('2026-01', -1), '2025-12');
   assert.equal(L.monthsBetween('2026-08', '2026-10'), 2);
   assert.equal(L.defaultYM(seed, '2026-10'), '2026-10'); assert.equal(L.defaultYM(seed, '2026-12'), '2026-12'.slice(0, 0) + '2026-12');
+});
+
+test('cards can have matching billing months while legacy data remains valid', () => {
+  const S = { v: 2, people: [], months: [], plans: [] };
+  const a = L.ensureMonth(S, '2026-11', 5, 'card-a');
+  const b = L.ensureMonth(S, '2026-11', 9, 'card-b');
+  assert.notEqual(a, b);
+  assert.equal(L.getM(S, '2026-11', 'card-a').due, '2026-11-05');
+  assert.equal(L.getM(S, '2026-11', 'card-b').due, '2026-11-09');
+  assert.deepEqual(L.validateState(S), { ok: true });
+  S.months.push({ ...a, items: [] });
+  assert.equal(L.validateState(S).ok, false, 'same card cannot have a duplicate billing month');
 });

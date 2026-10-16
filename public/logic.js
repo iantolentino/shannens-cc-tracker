@@ -36,12 +36,12 @@ export function equalSplit(amount, names) {
 }
 
 /* ---------- state helpers ---------- */
-export const getM = (S, ym) => S.months.find((m) => m.ym === ym);
+export const getM = (S, ym, cardId) => S.months.find((m) => m.ym === ym && (cardId == null || (m.cardId || 'card-default') === cardId));
 export const monthsAsc = (S) => S.months.slice().sort((a, b) => (a.ym < b.ym ? -1 : 1));
 export const monthsDesc = (S) => S.months.slice().sort((a, b) => (a.ym < b.ym ? 1 : -1));
-export function ensureMonth(S, ym, day) {
-  let m = getM(S, ym);
-  if (!m) { m = { ym, due: ym + '-' + pad(Math.min(day || 1, 28)), items: [] }; S.months.push(m); }
+export function ensureMonth(S, ym, day, cardId = 'card-default') {
+  let m = getM(S, ym, cardId);
+  if (!m) { m = { ym, cardId, due: ym + '-' + pad(Math.min(day || 1, 28)), items: [] }; S.months.push(m); }
   return m;
 }
 /** The latest month that is not in the future, or the oldest month if every month is ahead. */
@@ -63,8 +63,6 @@ export function totals(S, cur) {
   });
   return { total: t / 100, paid: p / 100, owe: (t - p) / 100, past: past / 100, fut: fut / 100 };
 }
-export const availableCredit = (S, cur) => (cents(S.limit) - cents(totals(S, cur).owe)) / 100;
-
 export function allPeople(S) {
   const map = {}, order = [];
   const add = (n) => { n = n.trim(); const k = n.toLowerCase(); if (!map[k]) { map[k] = { key: k, name: n, lines: [] }; order.push(k); } return map[k]; };
@@ -103,7 +101,7 @@ export function generatePlan(S, p) {
   const n = p.months, a = planAmounts(p.total, n);
   for (let k = 0; k < n; k++) {
     const ym = addM(p.start, k); if (p.skip && ym <= p.skip) continue;
-    const amt = k === n - 1 ? a.last : a.each, m = ensureMonth(S, ym, p.day);
+    const amt = k === n - 1 ? a.last : a.each, m = ensureMonth(S, ym, p.day, p.cardId || 'card-default');
     m.items.push({ id: uid(), d: p.name + ' · installment ' + (k + 1) + ' of ' + n, a: amt, shares: equalSplit(amt, p.payers), plan: { id: p.id, k } });
   }
 }
@@ -134,12 +132,13 @@ export function planInfo(S, p) {
 export function validateState(d) {
   const bad = (m) => ({ ok: false, error: m });
   if (!d || typeof d !== 'object' || d.v !== 2) return bad('Wrong data version.');
-  if (typeof d.limit !== 'number' || !(d.limit >= 0)) return bad('Credit limit must be a number.');
+  if (d.cards != null && (!Array.isArray(d.cards) || d.cards.some((c) => !c || typeof c.id !== 'string' || typeof c.name !== 'string' || !c.name.trim()))) return bad('A card is invalid.');
   if (!Array.isArray(d.months) || !Array.isArray(d.plans || [])) return bad('Months or plans are missing.');
   const seenYM = {}, seenId = {};
   for (const m of d.months) {
     if (!m || !/^\d{4}-\d{2}$/.test(m.ym) || !/^\d{4}-\d{2}-\d{2}$/.test(m.due) || m.due.slice(0, 7) !== m.ym) return bad('A month has a bad date.');
-    if (seenYM[m.ym]) return bad('Month ' + m.ym + ' appears twice.'); seenYM[m.ym] = 1;
+    const ymKey = (m.cardId || 'card-default') + ':' + m.ym;
+    if (seenYM[ymKey]) return bad('Month ' + m.ym + ' appears twice on the same card.'); seenYM[ymKey] = 1;
     if (!Array.isArray(m.items)) return bad('A month has no items.');
     for (const it of m.items) {
       if (!it || typeof it.id !== 'string' || typeof it.d !== 'string' || !Array.isArray(it.shares) || !it.shares.length) return bad('An item is incomplete.');
