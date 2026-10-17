@@ -52,5 +52,15 @@ export function mergeStates(base, local, remote, prefer = 'local') {
     conflicts.push({ path, local: copy(mine), remote: copy(theirs) });
     return copy(prefer === 'remote' ? theirs : mine);
   };
-  return { data: copy(visit(base, local, remote, '', '')), conflicts };
+  const data = copy(visit(base, local, remote, '', ''));
+  if (data && Array.isArray(data.cards)) {
+    const referenced = new Set([...(data.months || []), ...(data.plans || [])].map((record) => record.cardId || 'card-default'));
+    for (const id of referenced) {
+      if (!data.cards.some((card) => card.id === id)) {
+        const card = [...(remote?.cards || []), ...(local?.cards || []), ...(base?.cards || [])].find((card) => card.id === id);
+        if (card) data.cards.push(copy(card));
+      }
+    }
+  }
+  return { data, conflicts };
 }

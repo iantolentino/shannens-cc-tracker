@@ -151,3 +151,49 @@ test('later edits to a disputed field require a new review instead of being over
   assert.equal(a.run('conflict'),true);assert.equal(a.data().cards[0].name,'Later local edit');
   assert.equal((await store.get()).data.cards[0].name,'Theirs');
 });
+
+test('Settings separates Hide from Delete and includes Delete for hidden empty cards', () => {
+  const data=fixture();data.cards.push({id:'empty',name:'Test',archived:true});
+  const a=client({version:1,data},async()=>{});const html=a.run('pageSettings()');
+  assert.match(html,/>Hide card</);assert.doesNotMatch(html,/>Remove card</);
+  assert.match(html,/data-delete-card="empty" type="button">Delete card/);
+  assert.match(html,/data-delete-card="card-default" type="button" disabled/);
+});
+
+test('Hide preserves all records and cannot hide the last active card', () => {
+  const data=fixture();data.cards.push({id:'other',name:'Other'});
+  const a=client({version:1,data},async()=>{}),before=clone(data.months);
+  a.run("hideCard('card-default')");assert.equal(a.data().cards[0].archived,true);assert.deepEqual(a.data().months,before);
+  a.run("hideCard('other')");assert.notEqual(a.data().cards[1].archived,true);
+  assert.equal(a.run("canDeleteCard(S.cards[0])"),false);assert.equal(a.run("canDeleteCard(S.cards[1])"),false);
+});
+
+test('empty-card deletion persists and does not recreate a deleted empty default card after refresh', async () => {
+  const data=fixture();data.cards.push({id:'other',name:'Other'});data.months[0].cardId='other';
+  const store=memoryStore(),initial=await store.init(data),a=client(initial,(...args)=>server(store,...args));
+  await a.run("deleteEmptyCard('card-default')");
+  assert.equal((await store.get()).data.cards.some((c)=>c.id==='card-default'),false);
+  assert.deepEqual((await store.get()).data.months,data.months);
+  for(const selector of ['#boot','#login','#shell','#loginErr','#pw']) a.elements[selector]={hidden:false,value:'',focus(){}};
+  await a.run('boot()');assert.equal(a.data().cards.some((c)=>c.id==='card-default'),false);
+});
+
+test('deletion checks latest server records before removing a card', async () => {
+  const data=fixture();data.cards.push({id:'test',name:'Test',archived:true});
+  const store=memoryStore(),initial=await store.init(data),a=client(initial,(...args)=>server(store,...args));
+  const next=clone(data);next.months.push({ym:'2026-11',due:'2026-11-03',cardId:'test',items:[]});await store.put(next,initial.version);
+  await a.run("deleteEmptyCard('test')");assert.equal(a.data().cards.some((c)=>c.id==='test'),true);
+  assert.deepEqual((await store.get()).data,next);
+});
+
+test('sync keeps a card if another device adds a month during deletion', async () => {
+  const data=fixture();data.cards.push({id:'test',name:'Test'});
+  const store=memoryStore(),initial=await store.init(data);let concurrent=true;
+  const a=client(initial,async(url,options)=>{
+    if(concurrent && options?.method==='PUT') { concurrent=false;const next=clone(data);next.months.push({ym:'2026-11',due:'2026-11-03',cardId:'test',items:[]});await store.put(next,initial.version); }
+    return server(store,url,options);
+  });
+  await a.run("deleteEmptyCard('test')");
+  assert.equal(a.data().cards.some((c)=>c.id==='test'),true);assert.equal(a.data().months.length,2);
+  assert.equal(a.run('dirty'),false);assert.equal((await store.get()).data.cards.length,2);
+});

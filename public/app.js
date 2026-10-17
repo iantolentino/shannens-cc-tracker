@@ -175,7 +175,7 @@ async function boot() {
     S.plans = S.plans || []; S.people = S.people || [];
     S.cards = S.cards || [{ id: 'card-default', name: 'Primary card', bank: 'Existing card' }];
     let migrated = false;
-    if (!S.cards.some((c) => c.id === 'card-default')) S.cards.unshift({ id: 'card-default', name: 'Primary card', bank: 'Existing card' });
+    if (!S.cards.length || (!S.cards.some((c) => c.id === 'card-default') && [...S.months, ...S.plans].some((record) => (record.cardId || 'card-default') === 'card-default'))) { S.cards.unshift({ id: 'card-default', name: 'Primary card', bank: 'Existing card' }); migrated = true; }
     if (!S.cards.some((c) => !c.archived)) S.cards[0].archived = false;
     S.months.forEach((m) => { if (!m.cardId) { m.cardId = 'card-default'; migrated = true; } });
     S.plans.forEach((p) => { if (!p.cardId) { p.cardId = 'card-default'; migrated = true; } });
@@ -376,10 +376,13 @@ function pageSettings() {
     const monthsOnCard = S.months.filter((m) => (m.cardId || 'card-default') === c.id).length;
     const plansOnCard = S.plans.filter((p) => (p.cardId || 'card-default') === c.id).length;
     const renameButton = '<button class="plaque" data-rename-card="' + esc(c.id) + '" type="button">Rename</button>';
+    const hasRecords = monthsOnCard > 0 || plansOnCard > 0;
+    const deleteBlocked = hasRecords || (!c.archived && activeCards().length <= 1);
+    const deleteButton = '<button class="plaque warn" data-delete-card="' + esc(c.id) + '" type="button"' + (deleteBlocked ? ' disabled title="' + (hasRecords ? 'Cards with saved records can be hidden, but not deleted' : 'At least one card must remain active') + '"' : '') + '>Delete card</button>';
     const records = monthsOnCard + ' ' + (monthsOnCard === 1 ? 'month' : 'months') + ' · ' + plansOnCard + ' ' + (plansOnCard === 1 ? 'installment plan' : 'installment plans');
-    if (c.archived) return '<div class="settings-month"><div><b>' + esc(c.name) + '</b><div class="help">' + esc(c.bank || 'Credit card') + ' · Removed from selector · ' + records + ' preserved</div></div><div class="row-act">' + renameButton + '<button class="plaque" data-restore-card="' + esc(c.id) + '" type="button">Restore card</button></div></div>';
+    if (c.archived) return '<div class="settings-month"><div><b>' + esc(c.name) + '</b><div class="help">' + esc(c.bank || 'Credit card') + ' · Hidden from selector · ' + records + ' preserved</div></div><div class="row-act">' + renameButton + '<button class="plaque" data-restore-card="' + esc(c.id) + '" type="button">Restore card</button>' + deleteButton + '</div></div>';
     const lastCard = activeCards().length === 1;
-    return '<div class="settings-month"><div><b>' + esc(c.name) + (c.id === ui.cardId ? ' <span class="help">(current)</span>' : '') + '</b><div class="help">' + esc(c.bank || 'Credit card') + ' · ' + records + ' preserved</div></div><div class="row-act">' + renameButton + '<button class="plaque warn" data-delete-card="' + esc(c.id) + '" type="button"' + (lastCard ? ' disabled title="At least one card must remain active"' : '') + '>Remove card</button></div></div>';
+    return '<div class="settings-month"><div><b>' + esc(c.name) + (c.id === ui.cardId ? ' <span class="help">(current)</span>' : '') + '</b><div class="help">' + esc(c.bank || 'Credit card') + ' · ' + records + ' preserved</div></div><div class="row-act">' + renameButton + '<button class="plaque warn" data-hide-card="' + esc(c.id) + '" type="button"' + (lastCard ? ' disabled title="At least one card must remain active"' : '') + '>Hide card</button>' + deleteButton + '</div></div>';
   }).join('');
   const peopleRows = activePeople().map((p) => '<div class="settings-month"><b>' + esc(p.name) + '</b><div class="row-act"><button class="plaque" data-rename-person="' + esc(p.key) + '" type="button">Rename</button><button class="plaque warn" data-delete-person="' + esc(p.key) + '" type="button">Delete person</button></div></div>').join('') || '<p class="help">No people yet.</p>';
   const peopleSection = '<section class="counter settings-people"><h2>Manage people</h2><button class="plaque" data-act="person" type="button">Add person</button><div class="settings-month-list">' + peopleRows + '</div></section>';
@@ -387,7 +390,7 @@ function pageSettings() {
     '<form id="fpassword" autocomplete="on">' + passwordField('currentPassword', 'Current password', 'current-password') + passwordField('newPassword', 'New password', 'new-password', true) + passwordField('confirmPassword', 'Confirm new password', 'new-password', true) +
     '<div class="err" id="passwordErr" role="alert"></div><div class="row-act" style="margin-top:16px"><button class="counter-btn" type="submit">Update password</button></div></form></section>' +
     '<section class="counter settings-storage"><div class="row-act" style="justify-content:space-between"><div><div class="sign" style="color:var(--bronze);margin-bottom:8px">Storage</div><h2 style="margin:0">Database usage</h2></div><button class="plaque" data-storage-refresh type="button">Refresh</button></div>' + storage + '</section>' +
-    peopleSection + '<section class="counter settings-cards"><div class="sign" style="color:var(--bronze);margin-bottom:8px">Cards</div><h2>Manage bank cards</h2><p class="help">Removing a card hides it from the card selector. Its months, transactions, payment history, and installment plans stay saved and can be restored here.</p><div class="settings-month-list">' + cardRows + '</div></section>' +
+    peopleSection + '<section class="counter settings-cards"><div class="sign" style="color:var(--bronze);margin-bottom:8px">Cards</div><h2>Manage bank cards</h2><p class="help">Hide a card to keep its records and restore it later. Delete is available only for empty cards.</p><div class="settings-month-list">' + cardRows + '</div></section>' +
     '<section class="counter settings-months"><div class="sign" style="color:var(--bronze);margin-bottom:8px">Data maintenance</div><h2>Delete a month</h2><p class="help">Deleting a month permanently removes its transactions and removes that month from saved daily recovery copies. Download a backup first if you may need it later. Months containing installment payments must have their linked plan deleted first.</p><label class="f settings-year-filter">Show months from<select id="settingsYear"><option value="all"' + (selectedYear === 'all' ? ' selected' : '') + '>All years</option>' + settingsYears.map((year) => '<option value="' + year + '"' + (selectedYear === year ? ' selected' : '') + '>' + year + (year === curYM.slice(0, 4) ? ' (current year)' : '') + '</option>').join('') + '</select></label><div class="settings-month-list">' + months + '</div></section></div>';
 }
 
@@ -535,16 +538,45 @@ function openRenameCard(id) {
   openModal('Rename bank card', '<form id="frenamecard" data-card="' + esc(id) + '"><label class="f">Card name<input id="renameCardName" value="' + esc(card.name) + '" maxlength="60" required autocomplete="off"></label><label class="f">Bank or issuer<input id="renameCardBank" value="' + esc(card.bank || '') + '" maxlength="60" required autocomplete="off"></label><div class="err" id="err" role="alert"></div><div class="row-act"><button class="counter-btn" type="submit">Save changes</button><button class="btn2" data-closem="1" type="button">Cancel</button></div></form>');
 }
 
-function confirmDeleteCard(cardId) {
+function cardHasRecords(cardId) {
+  return [...S.months, ...S.plans].some((record) => (record.cardId || 'card-default') === cardId);
+}
+function canDeleteCard(card) {
+  return card && !cardHasRecords(card.id) && (card.archived || activeCards().length > 1);
+}
+function confirmPermanentCard(cardId) {
+  const card = S.cards.find((c) => c.id === cardId); if (!card) return;
+  if (!canDeleteCard(card)) { toast(cardHasRecords(cardId) ? 'This card has saved records. Use Hide card instead.' : 'At least one card must remain active'); return; }
+  openModal('Delete ' + esc(card.name) + '?', '<p class="card-remove-copy">Permanently delete this empty bank card from the list? It has no saved months or installment plans.</p><div class="row-act card-remove-actions"><button class="counter-btn" data-confirm-delete-card="' + esc(cardId) + '" type="button">Delete card</button><button class="btn2" data-closem="1" type="button">Cancel</button></div>');
+}
+async function deleteEmptyCard(cardId, button) {
+  if (button) button.disabled = true;
+  try {
+    for (let attempt = 0; saving && attempt < 20; attempt++) await new Promise((resolve) => setTimeout(resolve, 250));
+    if (dirty && !saving && !conflict) await flush();
+    if (dirty || saving || conflict) { toast('Wait for your changes to save before deleting a card.'); return; }
+    const row = await readRemote(); if (row.data && row.version > version) acceptRemote(row);
+    if (conflict || dirty) { toast('Review the latest changes before deleting this card.'); return; }
+    const card = S.cards.find((c) => c.id === cardId);
+    if (!card) { closeModal(); render(); return; }
+    if (!canDeleteCard(card)) { closeModal(); render(); toast(cardHasRecords(cardId) ? 'This card has saved records. Use Hide card instead.' : 'At least one card must remain active'); return; }
+    S.cards = S.cards.filter((c) => c.id !== cardId); repairSelectedCard();
+    closeModal(); save(); render(); await flush();
+    if (!dirty && !conflict) toast(S.cards.some((c) => c.id === cardId) ? 'Card kept because another device added records.' : 'Empty card deleted');
+  } catch { toast('Cannot check the latest records. The card was not deleted.'); }
+  finally { if (button) button.disabled = false; }
+}
+
+function confirmHideCard(cardId) {
   const card = S.cards.find((c) => c.id === cardId && !c.archived);
   if (!card) return;
   if (activeCards().length <= 1) { toast('At least one card must remain active'); return; }
   const monthCount = S.months.filter((m) => (m.cardId || 'card-default') === cardId).length;
   const planCount = S.plans.filter((p) => p.cardId === cardId).length;
-  openModal('Remove ' + esc(card.name) + '?', '<p class="card-remove-copy">This hides the card from the selector. <b>No data will be deleted.</b> Its ' + monthCount + ' month record' + (monthCount === 1 ? '' : 's') + ' and ' + planCount + ' installment plan' + (planCount === 1 ? '' : 's') + ' will be preserved and the card can be restored in Settings.</p><div class="row-act card-remove-actions"><button class="counter-btn" data-confirm-card="' + esc(cardId) + '" type="button">Remove card</button><button class="btn2" data-closem="1" type="button">Cancel</button></div>');
+  openModal('Hide ' + esc(card.name) + '?', '<p class="card-remove-copy">This hides the card from the selector. <b>No data will be deleted.</b> Its ' + monthCount + ' month record' + (monthCount === 1 ? '' : 's') + ' and ' + planCount + ' installment plan' + (planCount === 1 ? '' : 's') + ' will be preserved and the card can be restored in Settings.</p><div class="row-act card-remove-actions"><button class="counter-btn" data-confirm-hide-card="' + esc(cardId) + '" type="button">Hide card</button><button class="btn2" data-closem="1" type="button">Cancel</button></div>');
 }
 
-function removeCard(cardId) {
+function hideCard(cardId) {
   if (activeCards().length <= 1) { closeModal(); toast('At least one card must remain active'); return; }
   const card = S.cards.find((c) => c.id === cardId && !c.archived);
   if (!card) { closeModal(); return; }
@@ -554,7 +586,7 @@ function removeCard(cardId) {
     localStorage.setItem('cc-card-' + location.host, ui.cardId);
     ui.ym = ui.pm = defaultYM(cardData(), curYM);
   }
-  ui.storage = null; closeModal(); save(); render(); toast('Card removed; all records were preserved');
+  ui.storage = null; closeModal(); save(); render(); toast('Card hidden; all records were preserved');
 }
 
 /* statement of account for one person (the SOA button on a card) */
@@ -675,7 +707,7 @@ async function refreshSite(button) {
 document.addEventListener('click', (e) => {
   if (e.target.classList && e.target.classList.contains('scrim')) { closeModal(); return; }
   if (e.target.id === 'menuBtn') { ui.menu = !ui.menu; render(); return; }
-  const t = e.target.closest('[data-review-sync],[data-resolve-sync],[data-refresh-site],[data-show-password],[data-add-plan-payer],[data-remove-plan-payer],[data-rename-person],[data-confirm-person-delete],[data-menu-close],[data-go],[data-back],[data-month],[data-person],[data-act],[data-statements],[data-newym],[data-allpaid],[data-del],[data-split],[data-charge-for],[data-closem],[data-addrow],[data-rmrow],[data-equal],[data-copy],[data-delplan],[data-soa],[data-soacopy],[data-soaimage],[data-soapaid],[data-reload],[data-toggle-person],[data-toggle-plan],[data-storage-refresh],[data-delete-month],[data-confirm-month],[data-delete-person],[data-delete-card],[data-confirm-card],[data-restore-card],[data-rename-card],[data-tog],[data-plantog],[data-confirm-payment]');
+  const t = e.target.closest('[data-review-sync],[data-resolve-sync],[data-refresh-site],[data-show-password],[data-add-plan-payer],[data-remove-plan-payer],[data-rename-person],[data-confirm-person-delete],[data-menu-close],[data-go],[data-back],[data-month],[data-person],[data-act],[data-statements],[data-newym],[data-allpaid],[data-del],[data-split],[data-charge-for],[data-closem],[data-addrow],[data-rmrow],[data-equal],[data-copy],[data-delplan],[data-soa],[data-soacopy],[data-soaimage],[data-soapaid],[data-reload],[data-toggle-person],[data-toggle-plan],[data-storage-refresh],[data-delete-month],[data-confirm-month],[data-delete-person],[data-hide-card],[data-confirm-hide-card],[data-delete-card],[data-confirm-delete-card],[data-restore-card],[data-rename-card],[data-tog],[data-plantog],[data-confirm-payment]');
   if (!t) return; const d = t.dataset;
   if (d.reviewSync) { reviewSyncConflict(); return; }
   if (d.resolveSync) { resolveSyncConflict(d.resolveSync); return; }
@@ -693,8 +725,10 @@ document.addEventListener('click', (e) => {
   if (d.storageRefresh !== undefined) { ui.storage = null; refreshStorage(); return; }
   if (d.deleteMonth) { confirmDeleteMonth(d.deleteMonth); return; }
   if (d.confirmMonth) { deleteMonth(d.confirmMonth, t); return; }
-  if (d.deleteCard) { confirmDeleteCard(d.deleteCard); return; }
-  if (d.confirmCard) { removeCard(d.confirmCard); return; }
+  if (d.hideCard) { confirmHideCard(d.hideCard); return; }
+  if (d.deleteCard) { confirmPermanentCard(d.deleteCard); return; }
+  if (d.confirmDeleteCard) { deleteEmptyCard(d.confirmDeleteCard, t); return; }
+  if (d.confirmHideCard) { hideCard(d.confirmHideCard); return; }
   if (d.renameCard) { openRenameCard(d.renameCard); return; }
   if (d.restoreCard) { const card = S.cards.find((c) => c.id === d.restoreCard && c.archived); if (card) { card.archived = false; save(); render(); toast('Card restored'); } return; }
   if (d.tog) {
