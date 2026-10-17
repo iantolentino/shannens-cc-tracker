@@ -13,7 +13,7 @@ const curYM = now.getFullYear() + '-' + pad(now.getMonth() + 1);
 
 let S = null;        // all cards and data
 let version = 0;     // version of the data on the server
-const ui = { anim: true, page: 'dashboard', previous: 'dashboard', cardId: 'card-default', planOrder: 'newest', ym: curYM, pm: 'all', q: '', sure: null, onlyOwing: true, menu: false, banner: null, soa: null, pendingPayment: null, openPeople: new Set(), openPersonMonths: new Set(), openPlans: new Set(), storage: null, storageLoading: false, settingsYear: null };
+const ui = { anim: true, page: 'dashboard', previous: 'dashboard', cardId: 'card-default', planOrder: 'newest', ym: curYM, pm: 'all', q: '', sure: null, onlyOwing: true, menu: false, banner: null, soa: null, pendingPayment: null, openPeople: new Set(), openPlans: new Set(), storage: null, storageLoading: false, settingsYear: null };
 
 /* ---------- talking to the server ---------- */
 let dirty = false, saving = false, timer = null, halted = false, conflict = false;
@@ -171,8 +171,7 @@ function pagePeople() {
     c += '<div class="row-act" style="margin-top:8px"><button class="plaque" data-toggle-person="' + esc(P.key) + '" aria-expanded="' + expanded + '" type="button">' + (expanded ? 'Hide all items' : 'Show all items') + '</button></div>';
     Object.keys(by).map((k) => by[k]).sort((a, b) => (a.m.ym < b.m.ym ? 1 : -1)).forEach((g) => {
       let gt = 0, gl = 0; g.rows.forEach((l) => { gt += l.s.a; gl += l.s.a - paidOf(l.s); });
-      const monthKey = P.key + '|' + g.m.ym, monthExpanded = expanded || ui.openPersonMonths.has(monthKey);
-      c += '<div class="mg"><div class="mg-h"><span><b>' + esc(ymLabel(g.m.ym)) + '</b><br><span class="help">Due ' + esc(fshort(g.m.due)) + ' · ' + money(r2(gt)) + '</span></span><div class="row-act">' + (gl > 0.005 ? '<button class="plaque" data-allpaid="' + g.m.ym + '|' + esc(P.key) + '" type="button">Mark all paid</button>' : '<span class="pill ok">Paid</span>') + '<button class="plaque" data-toggle-person-month="' + esc(monthKey) + '" aria-expanded="' + monthExpanded + '" type="button">' + (monthExpanded ? 'Hide items' : 'Show items') + '</button></div></div><div' + (monthExpanded ? '' : ' hidden') + '>' + g.rows.map(lineHTML).join('') + '</div></div>';
+      c += '<div class="mg"><div class="mg-h"><span><b>' + esc(ymLabel(g.m.ym)) + '</b><br><span class="help">Due ' + esc(fshort(g.m.due)) + ' · ' + money(r2(gt)) + '</span></span><div class="row-act">' + (gl > 0.005 ? '<button class="plaque" data-allpaid="' + g.m.ym + '|' + esc(P.key) + '" type="button">Mark all paid</button>' : '<span class="pill ok">Paid</span>') + '</div></div><div' + (expanded ? '' : ' hidden') + '>' + g.rows.map(lineHTML).join('') + '</div></div>';
     });
     if (!ls.length) c += '<p class="help" style="margin:0">No charges yet.</p>';
     c += '<div class="row-act" style="margin-top:auto;justify-content:space-between"><button class="plaque" data-charge-for="' + esc(P.name) + '" type="button">+ Add item</button><button class="btn2" data-soa="' + esc(P.key) + '" type="button">Statement (SOA)</button><button class="plaque warn" data-delete-person="' + esc(P.key) + '" type="button">' + (ui.sure === 'person:' + P.key ? 'Tap again to remove' : 'Delete person') + '</button></div></article>';
@@ -519,28 +518,11 @@ function downloadSOAImage() {
 document.addEventListener('click', (e) => {
   if (e.target.classList && e.target.classList.contains('scrim')) { closeModal(); return; }
   if (e.target.id === 'menuBtn') { ui.menu = !ui.menu; render(); return; }
-  const t = e.target.closest('[data-menu-close],[data-go],[data-back],[data-month],[data-person],[data-act],[data-statements],[data-newym],[data-allpaid],[data-del],[data-split],[data-charge-for],[data-closem],[data-addrow],[data-rmrow],[data-equal],[data-copy],[data-delplan],[data-soa],[data-soacopy],[data-soaimage],[data-soapaid],[data-reload],[data-toggle-person],[data-toggle-person-month],[data-toggle-plan],[data-storage-refresh],[data-delete-month],[data-confirm-month],[data-delete-person],[data-delete-card],[data-confirm-card],[data-restore-card],[data-tog],[data-plantog],[data-confirm-payment]');
+  const t = e.target.closest('[data-menu-close],[data-go],[data-back],[data-month],[data-person],[data-act],[data-statements],[data-newym],[data-allpaid],[data-del],[data-split],[data-charge-for],[data-closem],[data-addrow],[data-rmrow],[data-equal],[data-copy],[data-delplan],[data-soa],[data-soacopy],[data-soaimage],[data-soapaid],[data-reload],[data-toggle-person],[data-toggle-plan],[data-storage-refresh],[data-delete-month],[data-confirm-month],[data-delete-person],[data-delete-card],[data-confirm-card],[data-restore-card],[data-tog],[data-plantog],[data-confirm-payment]');
   if (!t) return; const d = t.dataset;
   if (d.menuClose !== undefined) { ui.menu = false; render(); return; }
   if (d.reload) { location.reload(); return; }
-  if (d.togglePerson) {
-    if (ui.openPeople.has(d.togglePerson)) {
-      ui.openPeople.delete(d.togglePerson);
-      [...ui.openPersonMonths].filter((key) => key.startsWith(d.togglePerson + '|')).forEach((key) => ui.openPersonMonths.delete(key));
-    } else { ui.openPeople.add(d.togglePerson); [...ui.openPersonMonths].filter((key) => key.startsWith(d.togglePerson + '|')).forEach((key) => ui.openPersonMonths.delete(key)); }
-    render(); return;
-  }
-  if (d.togglePersonMonth) {
-    const splitAt = d.togglePersonMonth.lastIndexOf('|'), personKey = d.togglePersonMonth.slice(0, splitAt), monthKey = d.togglePersonMonth;
-    if (ui.openPeople.has(personKey)) {
-      ui.openPeople.delete(personKey);
-      const card = t.closest('.pc');
-      card?.querySelectorAll('[data-toggle-person-month]').forEach((button) => { if (button.dataset.togglePersonMonth !== monthKey) ui.openPersonMonths.add(button.dataset.togglePersonMonth); });
-      ui.openPersonMonths.delete(monthKey);
-    } else if (ui.openPersonMonths.has(monthKey)) ui.openPersonMonths.delete(monthKey);
-    else ui.openPersonMonths.add(monthKey);
-    render(); return;
-  }
+  if (d.togglePerson) { ui.openPeople.has(d.togglePerson) ? ui.openPeople.delete(d.togglePerson) : ui.openPeople.add(d.togglePerson); render(); return; }
   if (d.togglePlan) { ui.openPlans.has(d.togglePlan) ? ui.openPlans.delete(d.togglePlan) : ui.openPlans.add(d.togglePlan); render(); return; }
   if (d.storageRefresh !== undefined) { ui.storage = null; refreshStorage(); return; }
   if (d.deleteMonth) { confirmDeleteMonth(d.deleteMonth); return; }
