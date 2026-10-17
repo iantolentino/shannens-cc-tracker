@@ -68,6 +68,7 @@ async function boot() {
     if (migrated || !j.data.cards) save();
     ui.ym = ui.pm = defaultYM(S, curYM);
     $('#boot').hidden = true; $('#login').hidden = true; $('#shell').hidden = false;
+    try { if (sessionStorage.getItem('cc-refresh-settings') === '1') { ui.page = 'settings'; sessionStorage.removeItem('cc-refresh-settings'); } } catch {}
     ui.anim = true; render();
   } catch (e) { showFatal('Cannot reach the server. Check your internet and try again.'); }
 }
@@ -328,7 +329,7 @@ function render() {
   const picker = $('#cardSelect');
   if (picker) picker.innerHTML = activeCards().map((c) => '<option value="' + esc(c.id) + '"' + (c.id === ui.cardId ? ' selected' : '') + '>' + esc(c.name) + (c.bank ? ' · ' + esc(c.bank) : '') + '</option>').join('');
   const app = $('#app'); app.className = 'wrap' + (ui.anim ? ' anim' : ''); ui.anim = false;
-  const back = '<div class="page-top">' + (ui.page === 'dashboard' ? '' : '<button class="btn2" data-back type="button">← Back</button>') + '<div><div class="sign">' + esc(activeCard().bank || 'Credit card') + '</div><h1>' + esc(activeCard().name) + '</h1></div></div>';
+  const back = '<div class="page-top">' + (ui.page === 'dashboard' ? '' : '<button class="btn2" data-back type="button">← Back</button>') + '<div><div class="sign">' + esc(activeCard().bank || 'Credit card') + '</div><h1>' + esc(activeCard().name) + '</h1></div>' + (ui.page === 'settings' ? '<button class="btn2 settings-refresh" data-refresh-site="1" type="button">Refresh</button>' : '') + '</div>';
   app.innerHTML = bannerHTML() + back + (ui.page === 'month' ? pageMonth() : ui.page === 'people' ? pagePeople() : ui.page === 'statements' ? pageStatements() : ui.page === 'plans' ? pagePlans() : ui.page === 'settings' ? pageSettings() : pageDashboard());
   $('#dept').classList.toggle('open', ui.menu); $('#menuBtn').setAttribute('aria-expanded', ui.menu);
   $('#menuBackdrop').hidden = !ui.menu;
@@ -539,12 +540,33 @@ function downloadSOAImage() {
   } catch (e) { toast('Image could not be downloaded'); }
 }
 
+let refreshingSite = false;
+async function refreshSite(button) {
+  if (refreshingSite) return;
+  refreshingSite = true; button.disabled = true; button.textContent = 'Refreshing…';
+  try {
+    clearTimeout(timer);
+    for (let attempt = 0; saving && attempt < 20; attempt++) await new Promise((resolve) => setTimeout(resolve, 250));
+    if (dirty && !saving && !conflict) await flush();
+    if (dirty || saving || conflict) { toast('Please save your changes or resolve the save error before refreshing.'); return; }
+    const results = await Promise.all(['/app.js', '/logic.js', '/styles.css'].map((url) => fetch(url, { cache: 'reload', credentials: 'same-origin' })));
+    if (results.some((response) => !response.ok)) throw new Error('Could not refresh files');
+    try { sessionStorage.setItem('cc-refresh-settings', '1'); } catch {}
+    const url = new URL(location.href); url.searchParams.set('refresh', String(Date.now())); location.replace(url.href);
+  } catch { toast('Refresh failed. Check your internet and try again.'); }
+  finally {
+    refreshingSite = false;
+    const current = $('[data-refresh-site]'); if (current) { current.disabled = false; current.textContent = 'Refresh'; }
+  }
+}
+
 /* ---------- events ---------- */
 document.addEventListener('click', (e) => {
   if (e.target.classList && e.target.classList.contains('scrim')) { closeModal(); return; }
   if (e.target.id === 'menuBtn') { ui.menu = !ui.menu; render(); return; }
-  const t = e.target.closest('[data-edit-statement-date],[data-show-password],[data-add-plan-payer],[data-remove-plan-payer],[data-rename-person],[data-confirm-person-delete],[data-menu-close],[data-go],[data-back],[data-month],[data-person],[data-act],[data-statements],[data-newym],[data-allpaid],[data-del],[data-split],[data-charge-for],[data-closem],[data-addrow],[data-rmrow],[data-equal],[data-copy],[data-delplan],[data-soa],[data-soacopy],[data-soaimage],[data-soapaid],[data-reload],[data-toggle-person],[data-toggle-plan],[data-storage-refresh],[data-delete-month],[data-confirm-month],[data-delete-person],[data-delete-card],[data-confirm-card],[data-restore-card],[data-rename-card],[data-tog],[data-plantog],[data-confirm-payment]');
+  const t = e.target.closest('[data-refresh-site],[data-edit-statement-date],[data-show-password],[data-add-plan-payer],[data-remove-plan-payer],[data-rename-person],[data-confirm-person-delete],[data-menu-close],[data-go],[data-back],[data-month],[data-person],[data-act],[data-statements],[data-newym],[data-allpaid],[data-del],[data-split],[data-charge-for],[data-closem],[data-addrow],[data-rmrow],[data-equal],[data-copy],[data-delplan],[data-soa],[data-soacopy],[data-soaimage],[data-soapaid],[data-reload],[data-toggle-person],[data-toggle-plan],[data-storage-refresh],[data-delete-month],[data-confirm-month],[data-delete-person],[data-delete-card],[data-confirm-card],[data-restore-card],[data-rename-card],[data-tog],[data-plantog],[data-confirm-payment]');
   if (!t) return; const d = t.dataset;
+  if (d.refreshSite) { refreshSite(t); return; }
   if (d.editStatementDate) { openStatementDate(); return; }
   if (d.showPassword) {
     const input = $('#' + d.showPassword); if (!input) return;
