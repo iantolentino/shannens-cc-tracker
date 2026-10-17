@@ -91,7 +91,7 @@ function pageDashboard() {
   let i = 0;
   let h = '<div class="grid kpis">' +
     '<div class="counter kpi" style="--i:' + (i++) + '"><div class="k">Outstanding balance</div><div class="v owe n">' + money(T.owe) + '</div><div class="s">Unpaid on current and past bills ' + money(T.past) + '<br>Upcoming installments ' + money(T.fut) + '</div></div>' +
-    '<div class="counter kpi" style="--i:' + (i++) + '"><div class="k">Highest month</div><div class="v n" style="font-size:var(--t25)">' + (hi ? esc(ymLabel(hi.ym)) : 'None yet') + '</div><div class="s n">' + (hi ? money(hiT) + ' charged' : '') + '</div></div></div>';
+    '<div class="counter kpi" style="--i:' + (i++) + '"><div class="k">Statement date</div><div class="v n" style="font-size:var(--t25)">' + (activeCard().statementDate ? esc(fdue(activeCard().statementDate)) : 'Not set') + '</div><div class="s"><button class="btn2" data-edit-statement-date="1" type="button">' + (activeCard().statementDate ? 'Edit date' : 'Set date') + '</button></div></div></div>';
   h += '<section class="counter" style="--i:4;margin-bottom:20px" aria-label="Charges by month"><h2>Charges by month</h2><p class="help" style="margin:0">Tap a month to open its card.</p><div class="chart">' +
     ms.map((m) => {
       const t = mtot(m), ht = Math.max(t.total ? 4 : 0, Math.round(t.total / max * 170)), oh = t.total ? Math.round(t.owe / t.total * ht) : 0, ph = ht - oh;
@@ -413,6 +413,11 @@ function openCard() {
   openModal('Add bank card', '<form id="fcard"><label class="f">Card name<input id="cname" required maxlength="60" autocomplete="off" placeholder="Example: Travel card"></label><label class="f" style="margin-top:12px">Bank or issuer<input id="cbank" required maxlength="60" autocomplete="off" placeholder="Example: BPI"></label><div class="help" style="margin:12px 0">New card starts empty. Your existing bills and payments stay on your current card.</div><div class="err" id="err" role="alert"></div><div class="row-act"><button class="counter-btn" type="submit">Add card</button><button class="btn2" data-closem="1" type="button">Cancel</button></div></form>');
 }
 
+function openStatementDate() {
+  const card = activeCard();
+  openModal('Statement date', '<form id="fstatementdate" data-card="' + esc(card.id) + '"><label class="f">Statement date<input id="statementDate" type="date" value="' + esc(card.statementDate || '') + '" required></label><div class="err" id="err" role="alert"></div><div class="row-act"><button class="counter-btn" type="submit">Save date</button><button class="btn2" data-closem="1" type="button">Cancel</button></div></form>');
+}
+
 function openRenameCard(id) {
   const card = S.cards.find((c) => c.id === id); if (!card) return;
   openModal('Rename bank card', '<form id="frenamecard" data-card="' + esc(id) + '"><label class="f">Card name<input id="renameCardName" value="' + esc(card.name) + '" maxlength="60" required autocomplete="off"></label><label class="f">Bank or issuer<input id="renameCardBank" value="' + esc(card.bank || '') + '" maxlength="60" required autocomplete="off"></label><div class="err" id="err" role="alert"></div><div class="row-act"><button class="counter-btn" type="submit">Save changes</button><button class="btn2" data-closem="1" type="button">Cancel</button></div></form>');
@@ -538,8 +543,9 @@ function downloadSOAImage() {
 document.addEventListener('click', (e) => {
   if (e.target.classList && e.target.classList.contains('scrim')) { closeModal(); return; }
   if (e.target.id === 'menuBtn') { ui.menu = !ui.menu; render(); return; }
-  const t = e.target.closest('[data-show-password],[data-add-plan-payer],[data-remove-plan-payer],[data-rename-person],[data-confirm-person-delete],[data-menu-close],[data-go],[data-back],[data-month],[data-person],[data-act],[data-statements],[data-newym],[data-allpaid],[data-del],[data-split],[data-charge-for],[data-closem],[data-addrow],[data-rmrow],[data-equal],[data-copy],[data-delplan],[data-soa],[data-soacopy],[data-soaimage],[data-soapaid],[data-reload],[data-toggle-person],[data-toggle-plan],[data-storage-refresh],[data-delete-month],[data-confirm-month],[data-delete-person],[data-delete-card],[data-confirm-card],[data-restore-card],[data-rename-card],[data-tog],[data-plantog],[data-confirm-payment]');
+  const t = e.target.closest('[data-edit-statement-date],[data-show-password],[data-add-plan-payer],[data-remove-plan-payer],[data-rename-person],[data-confirm-person-delete],[data-menu-close],[data-go],[data-back],[data-month],[data-person],[data-act],[data-statements],[data-newym],[data-allpaid],[data-del],[data-split],[data-charge-for],[data-closem],[data-addrow],[data-rmrow],[data-equal],[data-copy],[data-delplan],[data-soa],[data-soacopy],[data-soaimage],[data-soapaid],[data-reload],[data-toggle-person],[data-toggle-plan],[data-storage-refresh],[data-delete-month],[data-confirm-month],[data-delete-person],[data-delete-card],[data-confirm-card],[data-restore-card],[data-rename-card],[data-tog],[data-plantog],[data-confirm-payment]');
   if (!t) return; const d = t.dataset;
+  if (d.editStatementDate) { openStatementDate(); return; }
   if (d.showPassword) {
     const input = $('#' + d.showPassword); if (!input) return;
     const show = input.type === 'password'; input.type = show ? 'text' : 'password';
@@ -717,6 +723,11 @@ document.addEventListener('submit', (e) => {
     S.inactivePeople = (S.inactivePeople || []).filter((k) => k !== key);
     S.people = S.people || []; if (!S.people.some((n) => personKey(n) === key)) S.people.push(nm);
     save(); closeModal(); ui.q = nm; ui.pm = 'all'; if (ui.page !== 'people') go('people'); else render(); toast('Person added'); return;
+  }
+  if (f.id === 'fstatementdate') {
+    const card = S.cards.find((c) => c.id === f.dataset.card), date = $('#statementDate').value;
+    if (!card || !/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(Date.parse(date))) { err.textContent = 'Choose a valid statement date.'; return; }
+    card.statementDate = date; save(); closeModal(); render(); toast('Statement date saved'); return;
   }
   if (f.id === 'frenamecard') {
     const card = S.cards.find((c) => c.id === f.dataset.card), name = $('#renameCardName').value.trim(), bank = $('#renameCardBank').value.trim();
