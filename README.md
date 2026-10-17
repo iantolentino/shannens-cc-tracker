@@ -11,7 +11,7 @@ Your data is saved in the database, so every phone and computer shows the same n
 ---
 
 ## 1. Set up in about 15 minutes
-
+ 
 ### Step 1. Create the database (Neon)
 1. Go to **neon.com** and sign up (free, no card).
 2. Click **Create project**. Name it `cc-tracker`. Pick the region closest to you (for the Philippines, choose **Asia Pacific (Singapore)**).
