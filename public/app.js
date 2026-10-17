@@ -1,5 +1,6 @@
 // CC Tracker front end. All money math lives in logic.js; this file draws pages and talks to the API.
 import * as L from './logic.js';
+import { mergeStates, sameState } from './sync.js';
 const { MON, r2, ymLabel, ymShort, addM, fdue, fshort, uid, paidOf, sPaid, iPaid, mtot, statusOf, equalSplit, getM, monthsAsc, monthsDesc,
   ensureMonth, defaultYM, findItem, totals, allPeople, personStatement, monthStatements, planAmounts, generatePlan, planInfo, sumShares } = L;
 
@@ -17,27 +18,131 @@ const ui = { anim: true, page: 'dashboard', previous: 'dashboard', cardId: 'card
 
 /* ---------- talking to the server ---------- */
 let dirty = false, saving = false, timer = null, halted = false, conflict = false;
+let baseState = null, polling = false, syncTimer = null, syncIssue = null, conflictVersions = null, syncStarted = false, renderPending = false;
+let recoveryTab = 'default';
+try { recoveryTab = sessionStorage.getItem('cc-recovery-tab') || uid(); sessionStorage.setItem('cc-recovery-tab', recoveryTab); } catch {}
+const recoveryKey = 'cc-pending-v3-' + location.host + '-' + recoveryTab;
+const cloneState = (data) => JSON.parse(JSON.stringify(data));
 
-function save() { dirty = true; clearTimeout(timer); timer = setTimeout(flush, 350); }
-
-function setBanner(kind, msg) { ui.banner = kind ? { kind, msg } : null; if (S) render(); }
-
-async function flush() {
-  if (saving || !dirty || conflict) return;
-  saving = true; dirty = false; halted = false;
-  try {
-    const r = await fetch('/api/state', { method: 'PUT', credentials: 'same-origin', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ baseVersion: version, data: S }) });
-    if (r.ok) { version = (await r.json()).version; if (ui.banner) setBanner(null); }
-    else if (r.status === 409) { conflict = true; setBanner('conflict'); }
-    else if (r.status === 401) { dirty = true; halted = true; showLogin('Your session ended. Sign in again to save your changes.'); }
-    else { const j = await r.json().catch(() => ({})); dirty = true; halted = r.status === 422; setBanner('error', j.error || 'Could not save.'); }
-  } catch (e) { dirty = true; setBanner('offline'); }
-  saving = false;
-  if (dirty && !conflict && !halted) { clearTimeout(timer); timer = setTimeout(flush, ui.banner ? 4000 : 50); }
+function keepPending() {
+  if (!S || !baseState) return;
+  try { localStorage.setItem(recoveryKey, JSON.stringify({ base: conflictVersions?.base || baseState, data: S, version, time: Date.now() })); }
+  catch { syncIssue = 'Browser recovery storage is full; keep this page open until saved.'; }
 }
-window.addEventListener('pagehide', () => {
-  if (dirty && S && !conflict) { try { fetch('/api/state', { method: 'PUT', keepalive: true, credentials: 'same-origin', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ baseVersion: version, data: S }) }); } catch (e) { /* page is closing */ } }
-});
+function clearPending() { try { localStorage.removeItem(recoveryKey); } catch {} }
+function syncStatus() {
+  return conflict ? 'Needs review' : saving ? 'Saving…' : dirty ? (syncIssue ? 'Not saved · kept on this device' : 'Saving…') : syncIssue ? 'Sync unavailable' : 'Saved';
+}
+function updateSyncStatus() {
+  document.querySelectorAll('[data-sync-status]').forEach((node) => { node.textContent = syncStatus(); });
+  const node = $('#syncBanner'); if (node) node.innerHTML = bannerHTML();
+}
+function save() {
+  dirty = true; halted = false; keepPending(); updateSyncStatus();
+  clearTimeout(timer); timer = setTimeout(flush, 200);
+}
+function setBanner(kind, msg) { ui.banner = kind ? { kind, msg } : null; updateSyncStatus(); }
+function editingData() {
+  return !!$('#modal')?.firstChild || !!document.activeElement?.matches?.('#app input:not([type=checkbox]), #app textarea, #app select');
+}
+function repairSelectedCard() {
+  if (!S.cards?.some((c) => c.id === ui.cardId && !c.archived)) {
+    ui.cardId = S.cards?.find((c) => !c.archived)?.id || 'card-default';
+    try { localStorage.setItem('cc-card-' + location.host, ui.cardId); } catch {}
+  }
+}
+function acceptRemote(row) {
+  if (!Number.isInteger(row.version) || !row.data || row.version < version) return;
+  if (sameState(S, baseState)) {
+    S = cloneState(row.data); baseState = cloneState(row.data); version = row.version;
+    dirty = false; conflict = false; conflictVersions = null; clearPending();
+  } else {
+    const before = cloneState(baseState), mine = cloneState(S), theirs = cloneState(row.data);
+    const merged = mergeStates(before, mine, theirs);
+    S = merged.data; baseState = theirs; version = row.version;
+    dirty = !sameState(S, baseState); conflict = merged.conflicts.length > 0;
+    conflictVersions = conflict ? { base: before, local: mine, remote: theirs, conflicts: merged.conflicts } : null;
+    if (dirty || conflict) keepPending(); else clearPending();
+  }
+  repairSelectedCard(); syncIssue = null;
+  ui.banner = conflict ? { kind: 'conflict' } : null;
+  if (!editingData()) { renderPending = false; render(); } else { renderPending = true; updateSyncStatus(); }
+}
+async function readRemote() {
+  const r = await fetch('/api/state', { credentials: 'same-origin', cache: 'no-store', headers: { 'x-state-version': String(version) } });
+  if (r.status === 401) { halted = true; throw new Error('Your session ended. Sign in again to sync.'); }
+  if (!r.ok) throw new Error('Cannot reach the server. Changes stay on this device.');
+  return r.json();
+}
+async function flush() {
+  if (saving || !dirty || conflict || !S) return;
+  saving = true; halted = false; updateSyncStatus();
+  const sent = cloneState(S), sentVersion = version;
+  keepPending();
+  try {
+    const r = await fetch('/api/state', { method: 'PUT', credentials: 'same-origin', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ baseVersion: sentVersion, data: sent }) });
+    if (r.ok) {
+      version = (await r.json()).version; baseState = sent; dirty = !sameState(S, sent);
+      syncIssue = null; ui.banner = null;
+      if (dirty) keepPending(); else clearPending();
+    } else if (r.status === 409) {
+      dirty = true;
+      // Avoid replacing objects while a person is typing or confirming a payment.
+      if (!$('#modal')?.firstChild) acceptRemote(await readRemote());
+    } else if (r.status === 401) {
+      dirty = true; halted = true; showLogin('Your session ended. Sign in again to save your changes.');
+    } else {
+      const j = await r.json().catch(() => ({})); dirty = true; halted = r.status === 422;
+      syncIssue = j.error || 'Could not save.'; ui.banner = { kind: 'error', msg: syncIssue };
+    }
+  } catch (e) { dirty = true; syncIssue = e.message || 'Cannot reach the server.'; ui.banner = { kind: 'offline', msg: syncIssue }; }
+  finally {
+    saving = false; if (dirty || conflict) keepPending(); updateSyncStatus();
+    if (dirty && !conflict && !halted) { clearTimeout(timer); timer = setTimeout(flush, syncIssue ? 4000 : 500); }
+  }
+}
+async function pollState() {
+  if (!S || saving || polling || conflict || halted || document.hidden || editingData()) return;
+  polling = true;
+  try {
+    const row = await readRemote();
+    if (saving || conflict || editingData()) return;
+    if (row.version > version) acceptRemote(row);
+    else { syncIssue = null; if (!dirty) { ui.banner = null; updateSyncStatus(); } if (renderPending) { renderPending = false; render(); } }
+    if (dirty) flush();
+  } catch (e) { syncIssue = e.message; if (dirty) ui.banner = { kind: 'offline', msg: syncIssue }; updateSyncStatus(); }
+  finally { polling = false; }
+}
+function startSync() {
+  if (syncStarted) return; syncStarted = true;
+  syncTimer = setInterval(pollState, 3000);
+}
+function reviewSyncConflict() {
+  if (!conflictVersions) return;
+  const list = conflictVersions.conflicts.slice(0, 12).map((c) => '<li>' + esc(c.path) + '<br><b>This device:</b> ' + esc(JSON.stringify(c.local) ?? 'Removed') + '<br><b>Saved on server:</b> ' + esc(JSON.stringify(c.remote) ?? 'Removed') + '</li>').join('');
+  openModal('Review changes', '<div class="payment-confirm-copy"><p>Both devices changed the same information. Other changes have been combined. Choose which version to use for the conflicting information.</p><ul class="sync-conflicts">' + list + '</ul></div><div class="row-act payment-confirm-actions"><button class="counter-btn" data-resolve-sync="local" type="button">Keep my changes</button><button class="btn2" data-resolve-sync="remote" type="button">Use latest saved</button><button class="btn2" data-closem="1" type="button">Review later</button></div>');
+}
+function resolveSyncConflict(prefer) {
+  if (!conflictVersions) return;
+  const c = conflictVersions;
+  // Include edits made on this device after the conflict was first detected.
+  const resolved = mergeStates(c.base, c.local, c.remote, prefer).data;
+  const originalMerged = mergeStates(c.base, c.local, c.remote).data, latestLocal = cloneState(S);
+  const withLaterEdits = mergeStates(originalMerged, latestLocal, resolved);
+  S = withLaterEdits.data;
+  if (withLaterEdits.conflicts.length) {
+    conflictVersions = { base: originalMerged, local: latestLocal, remote: resolved, conflicts: withLaterEdits.conflicts };
+    conflict = true; dirty = true; ui.banner = { kind: 'conflict' }; keepPending(); closeModal(); render(); return;
+  }
+  conflict = false; conflictVersions = null; ui.banner = null;
+  closeModal(); repairSelectedCard(); save(); render(); flush();
+}
+window.addEventListener('pagehide', () => { if ((dirty || saving || conflict) && S) keepPending(); });
+window.addEventListener('beforeunload', (event) => { if (dirty || saving || conflict) { keepPending(); event.preventDefault(); event.returnValue = ''; } });
+window.addEventListener('online', () => { halted = false; if (dirty) flush(); else pollState(); });
+window.addEventListener('focus', () => { if (dirty && !conflict) flush(); else pollState(); });
+document.addEventListener('focusout', () => { setTimeout(() => { if (renderPending && !editingData()) { renderPending = false; render(); } }, 100); });
+document.addEventListener('visibilitychange', () => { if (!document.hidden) { if (dirty && !conflict) flush(); else pollState(); } });
 
 function showLogin(msg) {
   $('#boot').hidden = true; $('#shell').hidden = true; $('#login').hidden = false;
@@ -55,7 +160,18 @@ async function boot() {
     if (r.status === 401) { showLogin(); return; }
     const j = await r.json().catch(() => ({}));
     if (!r.ok) { showFatal(j.error || 'The server returned an error.'); return; }
-    S = j.data; version = j.version; conflict = false; dirty = false;
+    S = cloneState(j.data); baseState = cloneState(j.data); version = j.version; conflict = false; dirty = false; syncIssue = null;
+    try {
+      const pending = JSON.parse(localStorage.getItem(recoveryKey) || 'null');
+      if (pending?.base && pending?.data && Number.isInteger(pending.version)) {
+        const merged = mergeStates(pending.base, pending.data, j.data);
+        S = merged.data; dirty = !sameState(S, j.data); conflict = merged.conflicts.length > 0;
+        conflictVersions = conflict ? { base: pending.base, local: pending.data, remote: cloneState(j.data), conflicts: merged.conflicts } : null;
+        ui.banner = conflict ? { kind: 'conflict' } : null;
+        if (dirty || conflict) keepPending(); else clearPending();
+      }
+    } catch { ui.banner = { kind: 'error', msg: 'The browser recovery copy could not be read. Keep any other open tracker tabs available.' }; }
+    const hadCards = Array.isArray(S.cards);
     S.plans = S.plans || []; S.people = S.people || [];
     S.cards = S.cards || [{ id: 'card-default', name: 'Primary card', bank: 'Existing card' }];
     let migrated = false;
@@ -65,11 +181,11 @@ async function boot() {
     S.plans.forEach((p) => { if (!p.cardId) { p.cardId = 'card-default'; migrated = true; } });
     ui.cardId = localStorage.getItem('cc-card-' + location.host) || 'card-default';
     if (!S.cards.some((c) => c.id === ui.cardId && !c.archived)) ui.cardId = S.cards.find((c) => !c.archived).id;
-    if (migrated || !j.data.cards) save();
+    if (migrated || !hadCards || dirty) save();
     ui.ym = ui.pm = defaultYM(S, curYM);
     $('#boot').hidden = true; $('#login').hidden = true; $('#shell').hidden = false;
     try { if (sessionStorage.getItem('cc-refresh-settings') === '1') { ui.page = 'settings'; sessionStorage.removeItem('cc-refresh-settings'); } } catch {}
-    ui.anim = true; render();
+    ui.anim = true; render(); startSync();
   } catch (e) { showFatal('Cannot reach the server. Check your internet and try again.'); }
 }
 
@@ -92,7 +208,7 @@ function pageDashboard() {
   let i = 0;
   let h = '<div class="grid kpis">' +
     '<div class="counter kpi" style="--i:' + (i++) + '"><div class="k">Outstanding balance</div><div class="v owe n">' + money(T.owe) + '</div><div class="s">Unpaid on current and past bills ' + money(T.past) + '<br>Upcoming installments ' + money(T.fut) + '</div></div>' +
-    '<div class="counter kpi" style="--i:' + (i++) + '"><div class="k">Statement date</div><div class="v n" style="font-size:var(--t25)">' + (activeCard().statementDate ? esc(fdue(activeCard().statementDate)) : 'Not set') + '</div><div class="s"><button class="btn2" data-edit-statement-date="1" type="button">' + (activeCard().statementDate ? 'Edit date' : 'Set date') + '</button></div></div></div>';
+    '<div class="counter kpi" style="--i:' + (i++) + '"><div class="k">Statement date</div><div class="statement-day"><span>Every</span><input id="statementDay" aria-label="Statement day of the month" aria-describedby="statementDayHelp" type="number" min="1" max="31" step="1" inputmode="numeric" placeholder="Day" value="' + esc(activeCard().statementDay || (activeCard().statementDate ? Number(activeCard().statementDate.slice(-2)) : '')) + '"><span>of the Month</span></div><div class="help" id="statementDayHelp">Enter a day from 1 to 31. Saves automatically.</div></div></div>';
   h += '<section class="counter" style="--i:4;margin-bottom:20px" aria-label="Charges by month"><h2>Charges by month</h2><p class="help" style="margin:0">Tap a month to open its card.</p><div class="chart">' +
     ms.map((m) => {
       const t = mtot(m), ht = Math.max(t.total ? 4 : 0, Math.round(t.total / max * 170)), oh = t.total ? Math.round(t.owe / t.total * ht) : 0, ph = ht - oh;
@@ -309,16 +425,16 @@ async function deleteMonth(ym, button) {
     const data = structuredClone(S); data.months = data.months.filter((item) => !(item.ym === ym && (item.cardId || 'card-default') === ui.cardId));
     const r = await fetch('/api/month', { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ym, cardId: ui.cardId, baseVersion: version, data }) });
     const j = await r.json().catch(() => ({}));
-    if (!r.ok) { err.textContent = j.error || 'Could not delete this month.'; if (r.status === 409) conflict = true; return; }
-    S = j.data; version = j.version; dirty = false; conflict = false; ui.storage = null; ui.ym = defaultYM(cardData(), curYM); closeModal(); render(); toast(ymLabel(ym) + ' deleted');
+    if (!r.ok) { err.textContent = j.error || 'Could not delete this month.'; if (r.status === 409) { ui.banner = { kind: 'error', msg: 'Another device saved changes. Close this dialog and try again after syncing.' }; } return; }
+    S = j.data; baseState = cloneState(j.data); version = j.version; dirty = false; conflict = false; conflictVersions = null; clearPending(); ui.storage = null; ui.ym = defaultYM(cardData(), curYM); closeModal(); render(); toast(ymLabel(ym) + ' deleted');
   } catch { err.textContent = 'Cannot reach the server. The month was not deleted.'; }
   finally { if ($('#monthDeleteErr')) button.disabled = false; }
 }
 
 function bannerHTML() {
   const b = ui.banner; if (!b) return '';
-  if (b.kind === 'conflict') return '<div class="banner" role="alert"><span>This data was changed on another device. Reload to see the latest. Your last change was not saved.</span><button class="counter-btn" data-reload="1" type="button">Reload</button></div>';
-  if (b.kind === 'offline') return '<div class="banner" role="alert"><span>You seem to be offline. Your changes are kept on this screen and will save when you are back online.</span></div>';
+  if (b.kind === 'conflict') return '<div class="banner" role="alert"><span>Both devices edited the same information. Your changes are kept on this device.</span><button class="counter-btn" data-review-sync="1" type="button">Review changes</button></div>';
+  if (b.kind === 'offline') return '<div class="banner" role="alert"><span>You seem to be offline. Your changes are kept on this device and will sync when you are back online.</span></div>';
   return '<div class="banner" role="alert"><span>Your last change did not save. ' + esc(b.msg || '') + '</span><button class="counter-btn" data-reload="1" type="button">Reload</button></div>';
 }
 
@@ -329,8 +445,8 @@ function render() {
   const picker = $('#cardSelect');
   if (picker) picker.innerHTML = activeCards().map((c) => '<option value="' + esc(c.id) + '"' + (c.id === ui.cardId ? ' selected' : '') + '>' + esc(c.name) + (c.bank ? ' · ' + esc(c.bank) : '') + '</option>').join('');
   const app = $('#app'); app.className = 'wrap' + (ui.anim ? ' anim' : ''); ui.anim = false;
-  const back = '<div class="page-top">' + (ui.page === 'dashboard' ? '' : '<button class="btn2" data-back type="button">← Back</button>') + '<div><div class="sign">' + esc(activeCard().bank || 'Credit card') + '</div><h1>' + esc(activeCard().name) + '</h1></div>' + (ui.page === 'settings' ? '<button class="btn2 settings-refresh" data-refresh-site="1" type="button">Refresh</button>' : '') + '</div>';
-  app.innerHTML = bannerHTML() + back + (ui.page === 'month' ? pageMonth() : ui.page === 'people' ? pagePeople() : ui.page === 'statements' ? pageStatements() : ui.page === 'plans' ? pagePlans() : ui.page === 'settings' ? pageSettings() : pageDashboard());
+  const back = '<div class="page-top">' + (ui.page === 'dashboard' ? '' : '<button class="btn2" data-back type="button">← Back</button>') + '<div><div class="sign">' + esc(activeCard().bank || 'Credit card') + '</div><h1>' + esc(activeCard().name) + '</h1><span class="help sync-status" data-sync-status role="status">' + esc(syncStatus()) + '</span></div>' + (ui.page === 'settings' ? '<button class="btn2 settings-refresh" data-refresh-site="1" type="button">Refresh</button>' : '') + '</div>';
+  app.innerHTML = '<div id="syncBanner">' + bannerHTML() + '</div>' + back + (ui.page === 'month' ? pageMonth() : ui.page === 'people' ? pagePeople() : ui.page === 'statements' ? pageStatements() : ui.page === 'plans' ? pagePlans() : ui.page === 'settings' ? pageSettings() : pageDashboard());
   $('#dept').classList.toggle('open', ui.menu); $('#menuBtn').setAttribute('aria-expanded', ui.menu);
   $('#menuBackdrop').hidden = !ui.menu;
   if ($('#soaBody')) renderSOA();
@@ -412,11 +528,6 @@ function openPerson() {
 }
 function openCard() {
   openModal('Add bank card', '<form id="fcard"><label class="f">Card name<input id="cname" required maxlength="60" autocomplete="off" placeholder="Example: Travel card"></label><label class="f" style="margin-top:12px">Bank or issuer<input id="cbank" required maxlength="60" autocomplete="off" placeholder="Example: BPI"></label><div class="help" style="margin:12px 0">New card starts empty. Your existing bills and payments stay on your current card.</div><div class="err" id="err" role="alert"></div><div class="row-act"><button class="counter-btn" type="submit">Add card</button><button class="btn2" data-closem="1" type="button">Cancel</button></div></form>');
-}
-
-function openStatementDate() {
-  const card = activeCard();
-  openModal('Statement date', '<form id="fstatementdate" data-card="' + esc(card.id) + '"><label class="f">Statement date<input id="statementDate" type="date" value="' + esc(card.statementDate || '') + '" required></label><div class="err" id="err" role="alert"></div><div class="row-act"><button class="counter-btn" type="submit">Save date</button><button class="btn2" data-closem="1" type="button">Cancel</button></div></form>');
 }
 
 function openRenameCard(id) {
@@ -549,7 +660,7 @@ async function refreshSite(button) {
     for (let attempt = 0; saving && attempt < 20; attempt++) await new Promise((resolve) => setTimeout(resolve, 250));
     if (dirty && !saving && !conflict) await flush();
     if (dirty || saving || conflict) { toast('Please save your changes or resolve the save error before refreshing.'); return; }
-    const results = await Promise.all(['/app.js', '/logic.js', '/styles.css'].map((url) => fetch(url, { cache: 'reload', credentials: 'same-origin' })));
+    const results = await Promise.all(['/app.js', '/logic.js', '/sync.js', '/styles.css'].map((url) => fetch(url, { cache: 'reload', credentials: 'same-origin' })));
     if (results.some((response) => !response.ok)) throw new Error('Could not refresh files');
     try { sessionStorage.setItem('cc-refresh-settings', '1'); } catch {}
     const url = new URL(location.href); url.searchParams.set('refresh', String(Date.now())); location.replace(url.href);
@@ -564,10 +675,11 @@ async function refreshSite(button) {
 document.addEventListener('click', (e) => {
   if (e.target.classList && e.target.classList.contains('scrim')) { closeModal(); return; }
   if (e.target.id === 'menuBtn') { ui.menu = !ui.menu; render(); return; }
-  const t = e.target.closest('[data-refresh-site],[data-edit-statement-date],[data-show-password],[data-add-plan-payer],[data-remove-plan-payer],[data-rename-person],[data-confirm-person-delete],[data-menu-close],[data-go],[data-back],[data-month],[data-person],[data-act],[data-statements],[data-newym],[data-allpaid],[data-del],[data-split],[data-charge-for],[data-closem],[data-addrow],[data-rmrow],[data-equal],[data-copy],[data-delplan],[data-soa],[data-soacopy],[data-soaimage],[data-soapaid],[data-reload],[data-toggle-person],[data-toggle-plan],[data-storage-refresh],[data-delete-month],[data-confirm-month],[data-delete-person],[data-delete-card],[data-confirm-card],[data-restore-card],[data-rename-card],[data-tog],[data-plantog],[data-confirm-payment]');
+  const t = e.target.closest('[data-review-sync],[data-resolve-sync],[data-refresh-site],[data-show-password],[data-add-plan-payer],[data-remove-plan-payer],[data-rename-person],[data-confirm-person-delete],[data-menu-close],[data-go],[data-back],[data-month],[data-person],[data-act],[data-statements],[data-newym],[data-allpaid],[data-del],[data-split],[data-charge-for],[data-closem],[data-addrow],[data-rmrow],[data-equal],[data-copy],[data-delplan],[data-soa],[data-soacopy],[data-soaimage],[data-soapaid],[data-reload],[data-toggle-person],[data-toggle-plan],[data-storage-refresh],[data-delete-month],[data-confirm-month],[data-delete-person],[data-delete-card],[data-confirm-card],[data-restore-card],[data-rename-card],[data-tog],[data-plantog],[data-confirm-payment]');
   if (!t) return; const d = t.dataset;
+  if (d.reviewSync) { reviewSyncConflict(); return; }
+  if (d.resolveSync) { resolveSyncConflict(d.resolveSync); return; }
   if (d.refreshSite) { refreshSite(t); return; }
-  if (d.editStatementDate) { openStatementDate(); return; }
   if (d.showPassword) {
     const input = $('#' + d.showPassword); if (!input) return;
     const show = input.type === 'password'; input.type = show ? 'text' : 'password';
@@ -670,6 +782,13 @@ document.addEventListener('change', (e) => {
 });
 document.addEventListener('input', (e) => {
   const t = e.target;
+  if (t.id === 'statementDay') {
+    const day = Number(t.value), valid = t.value !== '' && Number.isInteger(day) && day >= 1 && day <= 31;
+    t.setAttribute('aria-invalid', String(!valid));
+    const help = $('#statementDayHelp'); if (help) help.textContent = valid ? 'Saves automatically.' : 'Enter a whole number from 1 to 31.';
+    if (valid && activeCard().statementDay !== day) { activeCard().statementDay = day; delete activeCard().statementDate; save(); }
+    return;
+  }
   if (t.id === 'q') { ui.q = t.value; const pos = t.selectionStart; render(); const q = $('#q'); q.focus(); try { q.setSelectionRange(pos, pos); } catch (x) { /* ignore */ } return; }
   if (t.id === 'mt2' || t.classList.contains('pa') || t.classList.contains('pnew')) updateAssigned();
   if (t.id === 'ptot' || t.id === 'pn' || t.id === 'pst') updatePlanPrev();
@@ -679,7 +798,7 @@ document.addEventListener('submit', (e) => {
   if (f.id === 'loginForm') {
     const pw = $('#pw').value; $('#loginErr').textContent = '';
     fetch('/api/login', { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ password: pw }) })
-      .then(async (r) => { if (r.ok) { if (S) { $('#login').hidden = true; $('#shell').hidden = false; if (dirty) flush(); render(); } else boot(); } else { const j = await r.json().catch(() => ({})); $('#loginErr').textContent = j.error || 'Could not sign in.'; } })
+      .then(async (r) => { if (r.ok) { halted = false; if (S) { $('#login').hidden = true; $('#shell').hidden = false; if (dirty) flush(); render(); } else boot(); } else { const j = await r.json().catch(() => ({})); $('#loginErr').textContent = j.error || 'Could not sign in.'; } })
       .catch(() => { $('#loginErr').textContent = 'Cannot reach the server.'; });
     return;
   }
@@ -745,11 +864,6 @@ document.addEventListener('submit', (e) => {
     S.inactivePeople = (S.inactivePeople || []).filter((k) => k !== key);
     S.people = S.people || []; if (!S.people.some((n) => personKey(n) === key)) S.people.push(nm);
     save(); closeModal(); ui.q = nm; ui.pm = 'all'; if (ui.page !== 'people') go('people'); else render(); toast('Person added'); return;
-  }
-  if (f.id === 'fstatementdate') {
-    const card = S.cards.find((c) => c.id === f.dataset.card), date = $('#statementDate').value;
-    if (!card || !/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(Date.parse(date))) { err.textContent = 'Choose a valid statement date.'; return; }
-    card.statementDate = date; save(); closeModal(); render(); toast('Statement date saved'); return;
   }
   if (f.id === 'frenamecard') {
     const card = S.cards.find((c) => c.id === f.dataset.card), name = $('#renameCardName').value.trim(), bank = $('#renameCardBank').value.trim();
