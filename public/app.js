@@ -76,7 +76,9 @@ async function boot() {
 const pill = (st) => '<span class="pill ' + (st === 'paid' ? 'ok' : st === 'part' ? 'part' : 'owe') + '">' + (st === 'paid' ? 'Paid' : st === 'part' ? 'Part paid' : 'Unpaid') + '</span>';
 const money0 = (n) => (n >= 1000 ? '₱' + (n / 1000).toFixed(1) + 'k' : '₱' + Math.round(n));
 const people = () => allPeople(cardData());
-const nameList = () => people().map((p) => p.name).sort((a, b) => a.localeCompare(b));
+const personKey = (name) => name.trim().toLowerCase();
+const activePeople = () => allPeople(S).filter((p) => p.key !== 'former person' && !(S.inactivePeople || []).includes(p.key));
+const nameList = () => activePeople().map((p) => p.name).sort((a, b) => a.localeCompare(b));
 const cardData = () => ({ ...S, months: S.months.filter((m) => (m.cardId || 'card-default') === ui.cardId), plans: S.plans.filter((p) => (p.cardId || 'card-default') === ui.cardId) });
 const activeCards = () => S.cards.filter((c) => !c.archived);
 const activeCard = () => S.cards.find((c) => c.id === ui.cardId && !c.archived) || activeCards()[0] || S.cards[0];
@@ -155,13 +157,14 @@ function lineHTML(l) {
 }
 
 function pagePeople() {
-  const D = cardData(), q = ui.q.trim().toLowerCase(), list = allPeople(D), ms = monthsDesc(D);
+  const D = cardData(), q = ui.q.trim().toLowerCase(), list = allPeople(D).filter((p) => !(S.inactivePeople || []).includes(p.key)), ms = monthsDesc(D).filter((m) => m.items.length && m.ym <= addM(curYM, 1));
+  if (ui.pm !== 'all' && !ms.some((m) => m.ym === ui.pm)) ui.pm = 'all';
   let h = '<div class="pbar"><label class="f grow">Find<input id="q" type="search" placeholder="Person or product" value="' + esc(ui.q) + '"></label><label class="f">Month<select id="pm"><option value="all">All months</option>' + ms.map((m) => '<option value="' + m.ym + '"' + (ui.pm === m.ym ? ' selected' : '') + '>' + esc(ymLabel(m.ym)) + '</option>').join('') + '</select></label><button class="counter-btn" data-act="person" type="button">Add person</button></div>';
   const cards = []; let i = 0;
   list.forEach((P) => {
     const nameHit = q && P.name.toLowerCase().indexOf(q) > -1;
     const ls = P.lines.filter((l) => (ui.pm === 'all' || l.m.ym === ui.pm) && (!q || nameHit || l.it.d.toLowerCase().indexOf(q) > -1 || (l.s.n || '').toLowerCase().indexOf(q) > -1));
-    if (!ls.length && (q || ui.pm !== 'all')) return;
+    if (!ls.length && ((q && !nameHit) || ui.pm !== 'all')) return;
     let t = 0, p = 0; ls.forEach((l) => { t += Math.round(l.s.a * 100); p += Math.round(paidOf(l.s) * 100); });
     t /= 100; p /= 100; const owe = r2(t - p);
     const expanded = ui.openPeople.has(P.key);
@@ -256,7 +259,8 @@ function pageSettings() {
     const lastCard = activeCards().length === 1;
     return '<div class="settings-month"><div><b>' + esc(c.name) + (c.id === ui.cardId ? ' <span class="help">(current)</span>' : '') + '</b><div class="help">' + esc(c.bank || 'Credit card') + ' · ' + records + ' preserved</div></div><button class="plaque warn" data-delete-card="' + esc(c.id) + '" type="button"' + (lastCard ? ' disabled title="At least one card must remain active"' : '') + '>Remove card</button></div>';
   }).join('');
-  return '<div class="settings-grid"><section class="counter settings-account"><div class="sign" style="color:var(--bronze);margin-bottom:8px">Account</div><h2>Change master password</h2><p class="help" style="margin:0 0 18px">Your password is stored as a one-way hash. You will stay signed in on this device after changing it.</p>' +
+  const peopleRows = activePeople().map((p) => '<div class="settings-month"><b>' + esc(p.name) + '</b><div class="row-act"><button class="plaque" data-rename-person="' + esc(p.key) + '" type="button">Rename</button><button class="plaque warn" data-delete-person="' + esc(p.key) + '" type="button">Delete person</button></div></div>').join('') || '<p class="help">No people yet.</p>';
+  return '<div class="settings-grid"><section class="counter settings-people"><h2>Manage people</h2><button class="plaque" data-act="person" type="button">Add person</button><div class="settings-month-list">' + peopleRows + '</div></section>' + '<section class="counter settings-account"><div class="sign" style="color:var(--bronze);margin-bottom:8px">Account</div><h2>Change master password</h2><p class="help" style="margin:0 0 18px">Your password is stored as a one-way hash. You will stay signed in on this device after changing it.</p>' +
     '<form id="fpassword" autocomplete="on"><label class="f">Current password<input name="currentPassword" type="password" autocomplete="current-password" required></label>' +
     '<label class="f" style="margin-top:12px">New password<input name="newPassword" type="password" autocomplete="new-password" minlength="8" required><span class="help">Use at least 8 characters.</span></label>' +
     '<label class="f" style="margin-top:12px">Confirm new password<input name="confirmPassword" type="password" autocomplete="new-password" minlength="8" required></label>' +
@@ -372,11 +376,18 @@ function openCharge(itemId, person) {
     '<div class="err" id="err" role="alert"></div><div class="row-act"><button class="counter-btn" type="submit">' + (f ? 'Save bill' : 'Add to card') + '</button><button class="btn2" data-closem="1" type="button">Cancel</button></div></form>');
   updateAssigned();
 }
+function planPayerRow() {
+  return '<div class="prow" style="grid-template-columns:minmax(0,1fr) 32px"><select class="pn" aria-label="Installment payer">' + personOptions('') + '</select><button class="xb" data-remove-plan-payer="1" type="button" aria-label="Remove payer">✕</button><input class="pnew" hidden placeholder="New person name" aria-label="New person name" autocomplete="off"></div>';
+}
+function openRenamePerson(key) {
+  const p = activePeople().find((p) => p.key === key); if (!p) return;
+  openModal('Rename person', '<form id="frenameperson" data-key="' + esc(key) + '"><label class="f">Name<input id="renamePersonName" value="' + esc(p.name) + '" required maxlength="80"></label><div class="err" id="err" role="alert"></div><div class="row-act"><button class="counter-btn" type="submit">Save name</button><button class="btn2" data-closem="1" type="button">Cancel</button></div></form>');
+}
 function openPlan() {
   const ym = addM(curYM, 1);
   openModal('New installment', '<form id="fplan"><label class="f">Product<input id="pp" required autocomplete="off" placeholder="Example: Washing machine"></label>' +
-    '<fieldset class="chips"><legend>Who pays</legend>' + nameList().map((n) => '<label class="chip"><input type="checkbox" name="payer" value="' + esc(n) + '">' + esc(n) + '</label>').join('') + '</fieldset>' +
-    '<label class="f">Someone new (optional)<input id="pnewp" autocomplete="off" placeholder="Type a name"><span class="help">Each month is split equally between everyone chosen.</span></label>' +
+    '<div><div style="font-weight:600;margin-bottom:6px">Who pays</div><div id="planPayers">' + planPayerRow() + '</div><button class="btn2" data-add-plan-payer="1" type="button">Add payer</button></div>' +
+    '<p class="help">Each month is split equally between the selected payers.</p>' +
     '<div class="two-f"><label class="f">Total price (₱)<input id="ptot" type="number" step="0.01" min="0.01" required inputmode="decimal"></label><label class="f">Number of months<input id="pn" type="number" min="2" max="60" step="1" value="12" required></label>' +
     '<label class="f">First payment month<input id="pst" type="month" value="' + ym + '" required></label><label class="f">Due day<input id="pday" type="number" min="1" max="28" value="5" required><span class="help">Day of the month, 1 to 28.</span></label></div>' +
     '<div class="prev" id="prev" aria-live="polite">Fill in the price and months to see the plan.</div><div class="err" id="err" role="alert"></div><div class="row-act"><button class="counter-btn" type="submit">Create plan</button><button class="btn2" data-closem="1" type="button">Cancel</button></div></form>');
@@ -392,7 +403,7 @@ function openMonth(ym) {
   openModal('New month', '<form id="fmonth"><label class="f">Bill due date<input id="mdue" type="date" required value="' + (ym ? ym + '-01' : '') + '"><span class="help">The month is taken from this date.</span></label><div class="row-act"><button class="counter-btn" type="submit">Create month</button><button class="btn2" data-closem="1" type="button">Cancel</button></div></form>');
 }
 function openPerson() {
-  openModal('Add person', '<form id="fperson"><label class="f">Name<input id="pname" required autocomplete="off"><span class="help">A card is made for this person. Add items to it afterward.</span></label><div class="row-act"><button class="counter-btn" type="submit">Create card</button><button class="btn2" data-closem="1" type="button">Cancel</button></div></form>');
+  openModal('Add person', '<form id="fperson"><div class="err" id="err" role="alert"></div><label class="f">Name<input id="pname" required autocomplete="off"><span class="help">A card is made for this person. Add items to it afterward.</span></label><div class="row-act"><button class="counter-btn" type="submit">Create card</button><button class="btn2" data-closem="1" type="button">Cancel</button></div></form>');
 }
 function openCard() {
   openModal('Add bank card', '<form id="fcard"><label class="f">Card name<input id="cname" required maxlength="60" autocomplete="off" placeholder="Example: Travel card"></label><label class="f" style="margin-top:12px">Bank or issuer<input id="cbank" required maxlength="60" autocomplete="off" placeholder="Example: BPI"></label><div class="help" style="margin:12px 0">New card starts empty. Your existing bills and payments stay on your current card.</div><div class="err" id="err" role="alert"></div><div class="row-act"><button class="counter-btn" type="submit">Add card</button><button class="btn2" data-closem="1" type="button">Cancel</button></div></form>');
@@ -518,7 +529,7 @@ function downloadSOAImage() {
 document.addEventListener('click', (e) => {
   if (e.target.classList && e.target.classList.contains('scrim')) { closeModal(); return; }
   if (e.target.id === 'menuBtn') { ui.menu = !ui.menu; render(); return; }
-  const t = e.target.closest('[data-menu-close],[data-go],[data-back],[data-month],[data-person],[data-act],[data-statements],[data-newym],[data-allpaid],[data-del],[data-split],[data-charge-for],[data-closem],[data-addrow],[data-rmrow],[data-equal],[data-copy],[data-delplan],[data-soa],[data-soacopy],[data-soaimage],[data-soapaid],[data-reload],[data-toggle-person],[data-toggle-plan],[data-storage-refresh],[data-delete-month],[data-confirm-month],[data-delete-person],[data-delete-card],[data-confirm-card],[data-restore-card],[data-tog],[data-plantog],[data-confirm-payment]');
+  const t = e.target.closest('[data-add-plan-payer],[data-remove-plan-payer],[data-rename-person],[data-confirm-person-delete],[data-menu-close],[data-go],[data-back],[data-month],[data-person],[data-act],[data-statements],[data-newym],[data-allpaid],[data-del],[data-split],[data-charge-for],[data-closem],[data-addrow],[data-rmrow],[data-equal],[data-copy],[data-delplan],[data-soa],[data-soacopy],[data-soaimage],[data-soapaid],[data-reload],[data-toggle-person],[data-toggle-plan],[data-storage-refresh],[data-delete-month],[data-confirm-month],[data-delete-person],[data-delete-card],[data-confirm-card],[data-restore-card],[data-tog],[data-plantog],[data-confirm-payment]');
   if (!t) return; const d = t.dataset;
   if (d.menuClose !== undefined) { ui.menu = false; render(); return; }
   if (d.reload) { location.reload(); return; }
@@ -545,13 +556,16 @@ document.addEventListener('click', (e) => {
   if (d.closem) { closeModal(); return; }
   if (d.go) { go(d.go); return; }
   if (d.back !== undefined) { go(ui.previous === ui.page ? 'dashboard' : ui.previous); return; }
+  if (d.addPlanPayer) { $('#planPayers').insertAdjacentHTML('beforeend', planPayerRow()); return; }
+  if (d.removePlanPayer) { const rows = $('#planPayers').children; if (rows.length > 1) t.closest('.prow').remove(); return; }
+  if (d.renamePerson) { openRenamePerson(d.renamePerson); return; }
   if (d.deletePerson) {
-    const P = allPeople(S).find((x) => x.key === d.deletePerson);
-    if (!P) return;
-    if (ui.sure !== 'person:' + d.deletePerson) { ui.sure = 'person:' + d.deletePerson; render(); return; }
-    P.lines.forEach((line) => { line.s.p = 'Former person'; });
-    S.people = (S.people || []).filter((n) => n.trim().toLowerCase() !== d.deletePerson);
-    ui.sure = null; save(); render(); toast('Person removed; transaction amounts and payment records were kept'); return;
+    const p = activePeople().find((p) => p.key === d.deletePerson); if (!p) return;
+    openModal('Delete ' + esc(p.name) + '?', '<div class="payment-confirm-copy"><p>Remove this person from People and payer choices? Their existing bills and payment history stay saved.</p></div><div class="row-act payment-confirm-actions"><button class="counter-btn" data-confirm-person-delete="' + esc(p.key) + '" type="button">Delete person</button><button class="btn2" data-closem="1" type="button">Cancel</button></div>'); return;
+  }
+  if (d.confirmPersonDelete) {
+    S.inactivePeople = [...new Set([...(S.inactivePeople || []), d.confirmPersonDelete])];
+    ui.openPeople.delete(d.confirmPersonDelete); closeModal(); save(); render(); toast('Person removed'); return;
   }
   if (d.month) { ui.ym = d.month; go('month'); return; }
   if (d.person) { e.preventDefault(); ui.q = d.person; ui.pm = 'all'; go('people'); return; }
@@ -663,14 +677,31 @@ document.addEventListener('submit', (e) => {
   }
   if (f.id === 'fplan') {
     const name = $('#pp').value.trim(), total = r2(parseFloat($('#ptot').value)), n = parseInt($('#pn').value, 10), st = $('#pst').value, day = parseInt($('#pday').value, 10);
-    const payers = [...document.querySelectorAll('#modal input[name=payer]:checked')].map((x) => x.value);
-    $('#pnewp').value.split(',').map((x) => x.trim()).filter(Boolean).forEach((x) => { if (!payers.some((p) => p.toLowerCase() === x.toLowerCase())) payers.push(x); });
+    const selected = [...document.querySelectorAll('#planPayers .prow')].map((row) => row.querySelector('.pn').value === '__new' ? row.querySelector('.pnew').value.trim() : row.querySelector('.pn').value);
+    if (selected.some((name) => !name)) { err.textContent = 'Choose a person in each payer dropdown.'; return; }
+    const payers = [...new Map(selected.map((name) => [personKey(name), name])).values()];
     if (!name || !payers.length || !(total > 0) || !(n >= 2 && n <= 60) || !st || !(day >= 1 && day <= 28)) { err.textContent = 'Check every field. Choose who pays. Months must be from 2 to 60 and the due day from 1 to 28.'; return; }
+    S.inactivePeople = (S.inactivePeople || []).filter((key) => !payers.some((name) => personKey(name) === key));
     const plan = { id: 'p' + uid(), name, payers, total, months: n, start: st, day, skip: null, gen: true, cardId: ui.cardId };
     S.plans.push(plan); generatePlan(S, plan); save(); closeModal(); ui.page = 'plans'; ui.anim = true; render(); toast('Installment plan created'); return;
   }
   if (f.id === 'fmonth') { const due = $('#mdue').value; if (!due) return; const mo = ensureMonth(S, due.slice(0, 7), 1, ui.cardId); mo.due = due; ui.ym = mo.ym; save(); closeModal(); go('month'); return; }
-  if (f.id === 'fperson') { const nm = $('#pname').value.trim(); if (!nm) return; S.people.push(nm); save(); closeModal(); ui.q = nm; ui.pm = 'all'; render(); }
+  if (f.id === 'frenameperson') {
+    const oldKey = f.dataset.key, name = $('#renamePersonName').value.trim(), key = personKey(name);
+    if (!name) return;
+    if (key === 'former person' || (key !== oldKey && allPeople(S).some((p) => p.key === key))) { err.textContent = 'That name is already in use. Choose a different name.'; return; }
+    S.months.forEach((m) => m.items.forEach((it) => it.shares.forEach((share) => { if (personKey(share.p) === oldKey) share.p = name; })));
+    S.plans.forEach((plan) => { plan.payers = plan.payers.map((payer) => personKey(payer) === oldKey ? name : payer); });
+    S.people = (S.people || []).map((n) => personKey(n) === oldKey ? name : n);
+    ui.q = ''; ui.openPeople.delete(oldKey); closeModal(); save(); render(); toast('Name updated'); return;
+  }
+  if (f.id === 'fperson') {
+    const nm = $('#pname').value.trim(), key = personKey(nm); if (!nm) return;
+    if (key === 'former person' || activePeople().some((p) => p.key === key)) { err.textContent = 'This person already exists.'; return; }
+    S.inactivePeople = (S.inactivePeople || []).filter((k) => k !== key);
+    S.people = S.people || []; if (!S.people.some((n) => personKey(n) === key)) S.people.push(nm);
+    save(); closeModal(); ui.q = nm; ui.pm = 'all'; if (ui.page !== 'people') go('people'); else render(); toast('Person added'); return;
+  }
   if (f.id === 'fcard') { const name = $('#cname').value.trim(), bank = $('#cbank').value.trim(); if (!name || !bank) return; const id = 'card-' + uid(); S.cards.push({ id, name, bank }); ui.cardId = id; localStorage.setItem('cc-card-' + location.host, id); save(); closeModal(); ui.ym = ui.pm = defaultYM(cardData(), curYM); render(); toast('Card added'); return; }
 });
 
