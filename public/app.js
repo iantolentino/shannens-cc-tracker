@@ -239,6 +239,10 @@ function pagePlans() {
   return h;
 }
 
+function passwordField(id, label, autocomplete, minimum) {
+  return '<div class="f"><label for="' + id + '">' + label + '</label><div class="password-entry"><input id="' + id + '" name="' + id + '" type="password" autocomplete="' + autocomplete + '"' + (minimum ? ' minlength="8"' : '') + ' required><button class="btn2" data-show-password="' + id + '" type="button" aria-controls="' + id + '" aria-pressed="false" aria-label="Show ' + label.toLowerCase() + '">Show</button></div></div>';
+}
+
 function pageSettings() {
   const u = ui.storage, used = u && Number.isFinite(u.usedBytes) ? u.usedBytes : 0, limit = u && u.limitBytes || 1073741824;
   const pct = Math.min(100, Math.max(0, used / limit * 100)), storage = ui.storageLoading ? '<p class="help">Loading database size…</p>' : u && !u.error ?
@@ -263,9 +267,7 @@ function pageSettings() {
   const peopleRows = activePeople().map((p) => '<div class="settings-month"><b>' + esc(p.name) + '</b><div class="row-act"><button class="plaque" data-rename-person="' + esc(p.key) + '" type="button">Rename</button><button class="plaque warn" data-delete-person="' + esc(p.key) + '" type="button">Delete person</button></div></div>').join('') || '<p class="help">No people yet.</p>';
   const peopleSection = '<section class="counter settings-people"><h2>Manage people</h2><button class="plaque" data-act="person" type="button">Add person</button><div class="settings-month-list">' + peopleRows + '</div></section>';
   return '<div class="settings-grid"><section class="counter settings-account"><div class="sign" style="color:var(--bronze);margin-bottom:8px">Account</div><h2>Change master password</h2><p class="help" style="margin:0 0 18px">Your password is stored as a one-way hash. You will stay signed in on this device after changing it.</p>' +
-    '<form id="fpassword" autocomplete="on"><label class="f">Current password<input name="currentPassword" type="password" autocomplete="current-password" required></label>' +
-    '<label class="f" style="margin-top:12px">New password<input name="newPassword" type="password" autocomplete="new-password" minlength="8" required><span class="help">Use at least 8 characters.</span></label>' +
-    '<label class="f" style="margin-top:12px">Confirm new password<input name="confirmPassword" type="password" autocomplete="new-password" minlength="8" required></label>' +
+    '<form id="fpassword" autocomplete="on">' + passwordField('currentPassword', 'Current password', 'current-password') + passwordField('newPassword', 'New password', 'new-password', true) + passwordField('confirmPassword', 'Confirm new password', 'new-password', true) +
     '<div class="err" id="passwordErr" role="alert"></div><div class="row-act" style="margin-top:16px"><button class="counter-btn" type="submit">Update password</button></div></form></section>' +
     '<section class="counter settings-storage"><div class="row-act" style="justify-content:space-between"><div><div class="sign" style="color:var(--bronze);margin-bottom:8px">Storage</div><h2 style="margin:0">Database usage</h2></div><button class="plaque" data-storage-refresh type="button">Refresh</button></div>' + storage + '</section>' +
     peopleSection + '<section class="counter settings-cards"><div class="sign" style="color:var(--bronze);margin-bottom:8px">Cards</div><h2>Manage bank cards</h2><p class="help">Removing a card hides it from the card selector. Its months, transactions, payment history, and installment plans stay saved and can be restored here.</p><div class="settings-month-list">' + cardRows + '</div></section>' +
@@ -536,8 +538,14 @@ function downloadSOAImage() {
 document.addEventListener('click', (e) => {
   if (e.target.classList && e.target.classList.contains('scrim')) { closeModal(); return; }
   if (e.target.id === 'menuBtn') { ui.menu = !ui.menu; render(); return; }
-  const t = e.target.closest('[data-add-plan-payer],[data-remove-plan-payer],[data-rename-person],[data-confirm-person-delete],[data-menu-close],[data-go],[data-back],[data-month],[data-person],[data-act],[data-statements],[data-newym],[data-allpaid],[data-del],[data-split],[data-charge-for],[data-closem],[data-addrow],[data-rmrow],[data-equal],[data-copy],[data-delplan],[data-soa],[data-soacopy],[data-soaimage],[data-soapaid],[data-reload],[data-toggle-person],[data-toggle-plan],[data-storage-refresh],[data-delete-month],[data-confirm-month],[data-delete-person],[data-delete-card],[data-confirm-card],[data-restore-card],[data-rename-card],[data-tog],[data-plantog],[data-confirm-payment]');
+  const t = e.target.closest('[data-show-password],[data-add-plan-payer],[data-remove-plan-payer],[data-rename-person],[data-confirm-person-delete],[data-menu-close],[data-go],[data-back],[data-month],[data-person],[data-act],[data-statements],[data-newym],[data-allpaid],[data-del],[data-split],[data-charge-for],[data-closem],[data-addrow],[data-rmrow],[data-equal],[data-copy],[data-delplan],[data-soa],[data-soacopy],[data-soaimage],[data-soapaid],[data-reload],[data-toggle-person],[data-toggle-plan],[data-storage-refresh],[data-delete-month],[data-confirm-month],[data-delete-person],[data-delete-card],[data-confirm-card],[data-restore-card],[data-rename-card],[data-tog],[data-plantog],[data-confirm-payment]');
   if (!t) return; const d = t.dataset;
+  if (d.showPassword) {
+    const input = $('#' + d.showPassword); if (!input) return;
+    const show = input.type === 'password'; input.type = show ? 'text' : 'password';
+    t.textContent = show ? 'Hide' : 'Show'; t.setAttribute('aria-pressed', String(show));
+    t.setAttribute('aria-label', (show ? 'Hide ' : 'Show ') + (d.showPassword === 'currentPassword' ? 'current password' : d.showPassword === 'newPassword' ? 'new password' : 'confirm new password')); return;
+  }
   if (d.menuClose !== undefined) { ui.menu = false; render(); return; }
   if (d.reload) { location.reload(); return; }
   if (d.togglePerson) { ui.openPeople.has(d.togglePerson) ? ui.openPeople.delete(d.togglePerson) : ui.openPeople.add(d.togglePerson); render(); return; }
@@ -658,7 +666,7 @@ document.addEventListener('submit', (e) => {
       .then(async (r) => {
         const j = await r.json().catch(() => ({}));
         if (!r.ok) { err.textContent = j.error || 'Could not update the password.'; return; }
-        f.reset(); toast('Password updated');
+        f.reset(); f.querySelectorAll('[data-show-password]').forEach((b) => { const input = f.elements[b.dataset.showPassword]; input.type = 'password'; b.textContent = 'Show'; b.setAttribute('aria-pressed', 'false'); b.setAttribute('aria-label', 'Show ' + (input.id === 'currentPassword' ? 'current password' : input.id === 'newPassword' ? 'new password' : 'confirm new password')); }); toast('Password updated');
       })
       .catch(() => { err.textContent = 'Cannot reach the server. Try again.'; })
       .finally(() => { button.disabled = false; });

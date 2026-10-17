@@ -300,3 +300,7 @@ select option[disabled]{color:#8a8777}
 .ln .r3{grid-column:1/3;margin-left:28px;display:flex;gap:4px;align-items:center;min-width:0}
 .ln .r3 .rem{flex:1 1 0;min-width:0;margin:0;width:auto}
 .sched td:nth-child(2){white-space:nowrap}
+
+.password-entry{display:flex;align-items:stretch;gap:8px}
+.password-entry input{flex:1;min-width:0;width:100%}
+.password-entry button{flex:none;min-height:44px;min-width:64px}
