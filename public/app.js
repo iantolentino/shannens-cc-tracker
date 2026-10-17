@@ -254,19 +254,21 @@ function pageSettings() {
   const cardRows = S.cards.map((c) => {
     const monthsOnCard = S.months.filter((m) => (m.cardId || 'card-default') === c.id).length;
     const plansOnCard = S.plans.filter((p) => (p.cardId || 'card-default') === c.id).length;
+    const renameButton = '<button class="plaque" data-rename-card="' + esc(c.id) + '" type="button">Rename</button>';
     const records = monthsOnCard + ' ' + (monthsOnCard === 1 ? 'month' : 'months') + ' · ' + plansOnCard + ' ' + (plansOnCard === 1 ? 'installment plan' : 'installment plans');
-    if (c.archived) return '<div class="settings-month"><div><b>' + esc(c.name) + '</b><div class="help">' + esc(c.bank || 'Credit card') + ' · Removed from selector · ' + records + ' preserved</div></div><button class="plaque" data-restore-card="' + esc(c.id) + '" type="button">Restore card</button></div>';
+    if (c.archived) return '<div class="settings-month"><div><b>' + esc(c.name) + '</b><div class="help">' + esc(c.bank || 'Credit card') + ' · Removed from selector · ' + records + ' preserved</div></div><div class="row-act">' + renameButton + '<button class="plaque" data-restore-card="' + esc(c.id) + '" type="button">Restore card</button></div></div>';
     const lastCard = activeCards().length === 1;
-    return '<div class="settings-month"><div><b>' + esc(c.name) + (c.id === ui.cardId ? ' <span class="help">(current)</span>' : '') + '</b><div class="help">' + esc(c.bank || 'Credit card') + ' · ' + records + ' preserved</div></div><button class="plaque warn" data-delete-card="' + esc(c.id) + '" type="button"' + (lastCard ? ' disabled title="At least one card must remain active"' : '') + '>Remove card</button></div>';
+    return '<div class="settings-month"><div><b>' + esc(c.name) + (c.id === ui.cardId ? ' <span class="help">(current)</span>' : '') + '</b><div class="help">' + esc(c.bank || 'Credit card') + ' · ' + records + ' preserved</div></div><div class="row-act">' + renameButton + '<button class="plaque warn" data-delete-card="' + esc(c.id) + '" type="button"' + (lastCard ? ' disabled title="At least one card must remain active"' : '') + '>Remove card</button></div></div>';
   }).join('');
   const peopleRows = activePeople().map((p) => '<div class="settings-month"><b>' + esc(p.name) + '</b><div class="row-act"><button class="plaque" data-rename-person="' + esc(p.key) + '" type="button">Rename</button><button class="plaque warn" data-delete-person="' + esc(p.key) + '" type="button">Delete person</button></div></div>').join('') || '<p class="help">No people yet.</p>';
-  return '<div class="settings-grid"><section class="counter settings-people"><h2>Manage people</h2><button class="plaque" data-act="person" type="button">Add person</button><div class="settings-month-list">' + peopleRows + '</div></section>' + '<section class="counter settings-account"><div class="sign" style="color:var(--bronze);margin-bottom:8px">Account</div><h2>Change master password</h2><p class="help" style="margin:0 0 18px">Your password is stored as a one-way hash. You will stay signed in on this device after changing it.</p>' +
+  const peopleSection = '<section class="counter settings-people"><h2>Manage people</h2><button class="plaque" data-act="person" type="button">Add person</button><div class="settings-month-list">' + peopleRows + '</div></section>';
+  return '<div class="settings-grid"><section class="counter settings-account"><div class="sign" style="color:var(--bronze);margin-bottom:8px">Account</div><h2>Change master password</h2><p class="help" style="margin:0 0 18px">Your password is stored as a one-way hash. You will stay signed in on this device after changing it.</p>' +
     '<form id="fpassword" autocomplete="on"><label class="f">Current password<input name="currentPassword" type="password" autocomplete="current-password" required></label>' +
     '<label class="f" style="margin-top:12px">New password<input name="newPassword" type="password" autocomplete="new-password" minlength="8" required><span class="help">Use at least 8 characters.</span></label>' +
     '<label class="f" style="margin-top:12px">Confirm new password<input name="confirmPassword" type="password" autocomplete="new-password" minlength="8" required></label>' +
     '<div class="err" id="passwordErr" role="alert"></div><div class="row-act" style="margin-top:16px"><button class="counter-btn" type="submit">Update password</button></div></form></section>' +
     '<section class="counter settings-storage"><div class="row-act" style="justify-content:space-between"><div><div class="sign" style="color:var(--bronze);margin-bottom:8px">Storage</div><h2 style="margin:0">Database usage</h2></div><button class="plaque" data-storage-refresh type="button">Refresh</button></div>' + storage + '</section>' +
-    '<section class="counter settings-cards"><div class="sign" style="color:var(--bronze);margin-bottom:8px">Cards</div><h2>Manage bank cards</h2><p class="help">Removing a card hides it from the card selector. Its months, transactions, payment history, and installment plans stay saved and can be restored here.</p><div class="settings-month-list">' + cardRows + '</div></section>' +
+    peopleSection + '<section class="counter settings-cards"><div class="sign" style="color:var(--bronze);margin-bottom:8px">Cards</div><h2>Manage bank cards</h2><p class="help">Removing a card hides it from the card selector. Its months, transactions, payment history, and installment plans stay saved and can be restored here.</p><div class="settings-month-list">' + cardRows + '</div></section>' +
     '<section class="counter settings-months"><div class="sign" style="color:var(--bronze);margin-bottom:8px">Data maintenance</div><h2>Delete a month</h2><p class="help">Deleting a month permanently removes its transactions and removes that month from saved daily recovery copies. Download a backup first if you may need it later. Months containing installment payments must have their linked plan deleted first.</p><label class="f settings-year-filter">Show months from<select id="settingsYear"><option value="all"' + (selectedYear === 'all' ? ' selected' : '') + '>All years</option>' + settingsYears.map((year) => '<option value="' + year + '"' + (selectedYear === year ? ' selected' : '') + '>' + year + (year === curYM.slice(0, 4) ? ' (current year)' : '') + '</option>').join('') + '</select></label><div class="settings-month-list">' + months + '</div></section></div>';
 }
 
@@ -409,6 +411,11 @@ function openCard() {
   openModal('Add bank card', '<form id="fcard"><label class="f">Card name<input id="cname" required maxlength="60" autocomplete="off" placeholder="Example: Travel card"></label><label class="f" style="margin-top:12px">Bank or issuer<input id="cbank" required maxlength="60" autocomplete="off" placeholder="Example: BPI"></label><div class="help" style="margin:12px 0">New card starts empty. Your existing bills and payments stay on your current card.</div><div class="err" id="err" role="alert"></div><div class="row-act"><button class="counter-btn" type="submit">Add card</button><button class="btn2" data-closem="1" type="button">Cancel</button></div></form>');
 }
 
+function openRenameCard(id) {
+  const card = S.cards.find((c) => c.id === id); if (!card) return;
+  openModal('Rename bank card', '<form id="frenamecard" data-card="' + esc(id) + '"><label class="f">Card name<input id="renameCardName" value="' + esc(card.name) + '" maxlength="60" required autocomplete="off"></label><label class="f">Bank or issuer<input id="renameCardBank" value="' + esc(card.bank || '') + '" maxlength="60" required autocomplete="off"></label><div class="err" id="err" role="alert"></div><div class="row-act"><button class="counter-btn" type="submit">Save changes</button><button class="btn2" data-closem="1" type="button">Cancel</button></div></form>');
+}
+
 function confirmDeleteCard(cardId) {
   const card = S.cards.find((c) => c.id === cardId && !c.archived);
   if (!card) return;
@@ -529,7 +536,7 @@ function downloadSOAImage() {
 document.addEventListener('click', (e) => {
   if (e.target.classList && e.target.classList.contains('scrim')) { closeModal(); return; }
   if (e.target.id === 'menuBtn') { ui.menu = !ui.menu; render(); return; }
-  const t = e.target.closest('[data-add-plan-payer],[data-remove-plan-payer],[data-rename-person],[data-confirm-person-delete],[data-menu-close],[data-go],[data-back],[data-month],[data-person],[data-act],[data-statements],[data-newym],[data-allpaid],[data-del],[data-split],[data-charge-for],[data-closem],[data-addrow],[data-rmrow],[data-equal],[data-copy],[data-delplan],[data-soa],[data-soacopy],[data-soaimage],[data-soapaid],[data-reload],[data-toggle-person],[data-toggle-plan],[data-storage-refresh],[data-delete-month],[data-confirm-month],[data-delete-person],[data-delete-card],[data-confirm-card],[data-restore-card],[data-tog],[data-plantog],[data-confirm-payment]');
+  const t = e.target.closest('[data-add-plan-payer],[data-remove-plan-payer],[data-rename-person],[data-confirm-person-delete],[data-menu-close],[data-go],[data-back],[data-month],[data-person],[data-act],[data-statements],[data-newym],[data-allpaid],[data-del],[data-split],[data-charge-for],[data-closem],[data-addrow],[data-rmrow],[data-equal],[data-copy],[data-delplan],[data-soa],[data-soacopy],[data-soaimage],[data-soapaid],[data-reload],[data-toggle-person],[data-toggle-plan],[data-storage-refresh],[data-delete-month],[data-confirm-month],[data-delete-person],[data-delete-card],[data-confirm-card],[data-restore-card],[data-rename-card],[data-tog],[data-plantog],[data-confirm-payment]');
   if (!t) return; const d = t.dataset;
   if (d.menuClose !== undefined) { ui.menu = false; render(); return; }
   if (d.reload) { location.reload(); return; }
@@ -540,6 +547,7 @@ document.addEventListener('click', (e) => {
   if (d.confirmMonth) { deleteMonth(d.confirmMonth, t); return; }
   if (d.deleteCard) { confirmDeleteCard(d.deleteCard); return; }
   if (d.confirmCard) { removeCard(d.confirmCard); return; }
+  if (d.renameCard) { openRenameCard(d.renameCard); return; }
   if (d.restoreCard) { const card = S.cards.find((c) => c.id === d.restoreCard && c.archived); if (card) { card.archived = false; save(); render(); toast('Card restored'); } return; }
   if (d.tog) {
     e.preventDefault(); const q = d.tog.split('|'), f = findItem(S, q[0]), share = f && f.it.shares[+q[1]];
@@ -701,6 +709,11 @@ document.addEventListener('submit', (e) => {
     S.inactivePeople = (S.inactivePeople || []).filter((k) => k !== key);
     S.people = S.people || []; if (!S.people.some((n) => personKey(n) === key)) S.people.push(nm);
     save(); closeModal(); ui.q = nm; ui.pm = 'all'; if (ui.page !== 'people') go('people'); else render(); toast('Person added'); return;
+  }
+  if (f.id === 'frenamecard') {
+    const card = S.cards.find((c) => c.id === f.dataset.card), name = $('#renameCardName').value.trim(), bank = $('#renameCardBank').value.trim();
+    if (!card || !name || !bank) { err.textContent = 'Enter the card name and bank.'; return; }
+    card.name = name; card.bank = bank; save(); closeModal(); render(); toast('Card renamed'); return;
   }
   if (f.id === 'fcard') { const name = $('#cname').value.trim(), bank = $('#cbank').value.trim(); if (!name || !bank) return; const id = 'card-' + uid(); S.cards.push({ id, name, bank }); ui.cardId = id; localStorage.setItem('cc-card-' + location.host, id); save(); closeModal(); ui.ym = ui.pm = defaultYM(cardData(), curYM); render(); toast('Card added'); return; }
 });

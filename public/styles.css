@@ -44,13 +44,10 @@ h2{font-size:var(--t20);margin-bottom:10px} h3{font-size:var(--t17)}
 .rule{border:0;border-top:1px solid var(--stone);margin:0}
 .tools{display:flex;flex:1;flex-direction:column;gap:10px;align-items:stretch}
 .dept .plaque.sign-out{margin-top:auto;color:#b42318;border-color:#b42318}
-.settings-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr));align-items:start;gap:20px}
+.settings-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-items:start;gap:20px}
 .settings-grid>.counter{width:100%;min-width:0;max-width:none;margin:0}
-.settings-account{grid-column:1}
-.settings-months{grid-column:2}
-.settings-cards,.settings-months{grid-column:1/-1}
-.settings-storage{grid-column:1/-1;grid-row:2}
-@media (max-width:880px){.settings-months{grid-column:1}.settings-storage{grid-row:auto}}
+.settings-grid .settings-month{flex-wrap:wrap}
+@media (max-width:699px){.settings-grid{grid-template-columns:minmax(0,1fr)}}
 .storage-numbers{display:flex;align-items:baseline;gap:4px;margin-top:18px}
 .storage-numbers>b{font-family:var(--display);font-size:var(--t25);font-variant-numeric:tabular-nums}
 .storage-percent{margin-left:auto}
