@@ -13,7 +13,7 @@ const curYM = now.getFullYear() + '-' + pad(now.getMonth() + 1);
 
 let S = null;        // all cards and data
 let version = 0;     // version of the data on the server
-const ui = { anim: true, page: 'dashboard', previous: 'dashboard', cardId: 'card-default', planOrder: 'newest', ym: curYM, pm: 'all', q: '', sure: null, onlyOwing: true, menu: false, banner: null, soa: null, openPeople: new Set(), openPlans: new Set(), storage: null, storageLoading: false, settingsYear: null };
+const ui = { anim: true, page: 'dashboard', previous: 'dashboard', cardId: 'card-default', planOrder: 'newest', ym: curYM, pm: 'all', q: '', sure: null, onlyOwing: true, menu: false, banner: null, soa: null, pendingPayment: null, openPeople: new Set(), openPersonMonths: new Set(), openPlans: new Set(), storage: null, storageLoading: false, settingsYear: null };
 
 /* ---------- talking to the server ---------- */
 let dirty = false, saving = false, timer = null, halted = false, conflict = false;
@@ -168,12 +168,14 @@ function pagePeople() {
     let c = '<article class="counter tight pc" style="--i:' + Math.min(i++, 8) + '"><div class="pc-h"><div class="pc-name">' + esc(P.name) + '</div>' + (t === 0 ? '<span class="pill soon">No charges</span>' : (owe > 0.005 ? '<span class="pill owe">Balance</span>' : '<span class="pill ok">All paid</span>')) + '</div>' +
       '<div class="sum"><div><span class="help">Total bill</span><b class="n">' + money(t) + '</b></div><div><span class="help">Outstanding</span><b class="n" style="color:' + (owe > 0.005 ? 'var(--bronze)' : 'var(--olive)') + '">' + money(owe) + '</b></div></div>';
     const by = {}; ls.forEach((l) => { (by[l.m.ym] = by[l.m.ym] || { m: l.m, rows: [] }).rows.push(l); });
+    c += '<div class="row-act" style="margin-top:8px"><button class="plaque" data-toggle-person="' + esc(P.key) + '" aria-expanded="' + expanded + '" type="button">' + (expanded ? 'Hide all items' : 'Show all items') + '</button></div>';
     Object.keys(by).map((k) => by[k]).sort((a, b) => (a.m.ym < b.m.ym ? 1 : -1)).forEach((g) => {
       let gt = 0, gl = 0; g.rows.forEach((l) => { gt += l.s.a; gl += l.s.a - paidOf(l.s); });
-      c += '<div class="mg"><div class="mg-h"><span><b>' + esc(ymLabel(g.m.ym)) + '</b><br><span class="help">Due ' + esc(fshort(g.m.due)) + ' · ' + money(r2(gt)) + '</span></span>' + (gl > 0.005 ? '<button class="plaque" data-allpaid="' + g.m.ym + '|' + esc(P.key) + '" type="button">Mark all paid</button>' : '<span class="pill ok">Paid</span>') + '</div><div' + (expanded ? '' : ' hidden') + '>' + g.rows.map(lineHTML).join('') + '</div></div>';
+      const monthKey = P.key + '|' + g.m.ym, monthExpanded = expanded || ui.openPersonMonths.has(monthKey);
+      c += '<div class="mg"><div class="mg-h"><span><b>' + esc(ymLabel(g.m.ym)) + '</b><br><span class="help">Due ' + esc(fshort(g.m.due)) + ' · ' + money(r2(gt)) + '</span></span><div class="row-act">' + (gl > 0.005 ? '<button class="plaque" data-allpaid="' + g.m.ym + '|' + esc(P.key) + '" type="button">Mark all paid</button>' : '<span class="pill ok">Paid</span>') + '<button class="plaque" data-toggle-person-month="' + esc(monthKey) + '" aria-expanded="' + monthExpanded + '" type="button">' + (monthExpanded ? 'Hide items' : 'Show items') + '</button></div></div><div' + (monthExpanded ? '' : ' hidden') + '>' + g.rows.map(lineHTML).join('') + '</div></div>';
     });
     if (!ls.length) c += '<p class="help" style="margin:0">No charges yet.</p>';
-    c += '<div class="row-act" style="margin-top:auto;justify-content:space-between"><button class="plaque" data-toggle-person="' + esc(P.key) + '" aria-expanded="' + expanded + '" type="button">' + (expanded ? 'Hide all items' : 'Show all items') + '</button><button class="plaque" data-charge-for="' + esc(P.name) + '" type="button">+ Add item</button><button class="btn2" data-soa="' + esc(P.key) + '" type="button">Statement (SOA)</button><button class="plaque warn" data-delete-person="' + esc(P.key) + '" type="button">' + (ui.sure === 'person:' + P.key ? 'Tap again to remove' : 'Delete person') + '</button></div></article>';
+    c += '<div class="row-act" style="margin-top:auto;justify-content:space-between"><button class="plaque" data-charge-for="' + esc(P.name) + '" type="button">+ Add item</button><button class="btn2" data-soa="' + esc(P.key) + '" type="button">Statement (SOA)</button><button class="plaque warn" data-delete-person="' + esc(P.key) + '" type="button">' + (ui.sure === 'person:' + P.key ? 'Tap again to remove' : 'Delete person') + '</button></div></article>';
     cards.push(c);
   });
   return h + (cards.length ? '<div class="pgrid">' + cards.join('') + '</div>' : '<div class="empty">Nothing matches.</div>');
@@ -333,7 +335,7 @@ function openModal(title, body, cls) {
   $('#modal').innerHTML = '<div class="scrim"><div class="sheet' + (cls ? ' ' + cls : '') + '" role="dialog" aria-modal="true" aria-labelledby="mtitle"><div class="sheet-h"><h2 id="mtitle" style="margin:0">' + title + '</h2><button class="xb" data-closem="1" type="button" aria-label="Close">✕</button></div>' + body + '</div></div>';
   const f = $('#modal input:not([type=hidden]):not([type=checkbox]),#modal select'); if (f) f.focus();
 }
-function closeModal() { $('#modal').innerHTML = ''; ui.soa = null; }
+function closeModal() { $('#modal').innerHTML = ''; ui.soa = null; ui.pendingPayment = null; }
 
 /* a payer row: a real dropdown of people, plus "New person" */
 function personOptions(sel) {
@@ -435,24 +437,110 @@ function renderSOA() {
   const x = soaStatement(); if (!x) { closeModal(); return; }
   const mons = [...new Set(x.P.lines.map((l) => l.m.ym))].sort().reverse();
   body.innerHTML = '<div class="soa"><label class="f" style="margin-bottom:14px">Show<select id="soaym"><option value="">All unpaid charges</option>' + mons.map((m) => '<option value="' + m + '"' + (ui.soa.ym === m ? ' selected' : '') + '>' + esc(ymLabel(m)) + ' bill</option>').join('') + '</select></label>' + receiptHTML(x.st) + '</div>' +
-    '<div class="row-act soa-act"><button class="btn2" data-soacopy="1" type="button">Copy as text</button>' + (x.st.owe > 0.005 ? '<button class="plaque" data-soapaid="1" type="button">Mark all paid</button>' : '') + '<button class="btn2" data-closem="1" type="button">Close</button></div>';
+    '<div class="row-act soa-act"><button class="btn2" data-soacopy="1" type="button">Copy as text</button><button class="btn2" data-soaimage="1" type="button">Download image</button>' + (x.st.owe > 0.005 ? '<button class="plaque" data-soapaid="1" type="button">Mark all paid</button>' : '') + '<button class="btn2" data-closem="1" type="button">Close</button></div>';
 }
 function toast(t) { const d = document.createElement('div'); d.className = 'toast'; d.setAttribute('role', 'status'); d.textContent = t; document.body.appendChild(d); setTimeout(() => d.remove(), 1800); }
 function copyText(t) {
   const fallback = () => { const ta = document.createElement('textarea'); ta.value = t; ta.style.position = 'fixed'; ta.style.opacity = '0'; document.body.appendChild(ta); ta.select(); let ok = false; try { ok = document.execCommand('copy'); } catch (e) { /* ignore */ } ta.remove(); toast(ok ? 'Copied' : 'Copy did not work'); };
   if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(t).then(() => toast('Copied'), fallback); else fallback();
 }
-function markPaid(lines) { lines.forEach((l) => { l.s.pd = l.s.a; }); save(); render(); }
+function confirmPayment(lines, paid, description) {
+  const rows = (lines || []).filter((l) => l && l.s);
+  if (!rows.length) return;
+  ui.pendingPayment = { lines: rows, paid: !!paid, description: description || (rows.length === 1 ? 'this payment' : 'these payments') };
+  const action = paid ? 'mark as paid' : 'undo the payment for';
+  openModal(paid ? 'Confirm payment' : 'Undo payment?', '<div class="payment-confirm-copy"><p>Are you sure you want to ' + action + ' <b>' + esc(ui.pendingPayment.description) + '</b>?</p>' + (!paid ? '<p class="help">This will change it back to unpaid.</p>' : '') + '</div><div class="row-act payment-confirm-actions"><button class="counter-btn" data-confirm-payment="1" type="button">' + (paid ? 'Yes, mark as paid' : 'Yes, undo payment') + '</button><button class="btn2" data-closem="1" type="button">Cancel</button></div>');
+}
+
+function applyPayment(lines, paid) {
+  lines.forEach((l) => { l.s.pd = paid ? l.s.a : 0; });
+  const month = getM(cardData(), ui.ym);
+  const touchedSelectedMonth = lines.some((l) => l.m && l.m.ym === ui.ym);
+  const finishedMonth = touchedSelectedMonth && month && mtot(month).total > 0 && mtot(month).owe <= 0.005;
+  const advanced = !!(paid && finishedMonth && (ui.page === 'month' || ui.page === 'statements'));
+  if (advanced) ui.ym = addM(ui.ym, 1);
+  save(); render();
+  if (advanced) toast('Month paid in full. Showing ' + ymLabel(ui.ym));
+  return advanced;
+}
+
+function canvasText(ctx, text, x, y, maxWidth, lineHeight) {
+  const words = String(text || '').split(/\s+/); let line = '';
+  for (const word of words) {
+    const next = line ? line + ' ' + word : word;
+    if (ctx.measureText(next).width > maxWidth && line) { ctx.fillText(line, x, y); line = word; y += lineHeight; }
+    else line = next;
+  }
+  if (line) { ctx.fillText(line, x, y); y += lineHeight; }
+  return y;
+}
+
+function downloadSOAImage() {
+  const x = soaStatement(); if (!x) return;
+  const st = x.st, single = !!st.ym, width = 1100, pad = 72, contentWidth = width - pad * 2;
+  const itemCount = st.groups.reduce((n, g) => n + g.rows.length, 0);
+  const canvas = document.createElement('canvas'); canvas.width = width; canvas.height = Math.max(720, 560 + itemCount * 170 + st.groups.length * (single ? 0 : 42));
+  const ctx = canvas.getContext('2d'); if (!ctx) { toast('Image could not be created'); return; }
+  const colors = { bg: '#f6f4ec', card: '#fbfaf3', ink: '#2b2a24', olive: '#556b2f', bronze: '#8a6d3b', stone: '#e3e0d2', muted: '#3c4429' };
+  ctx.fillStyle = colors.bg; ctx.fillRect(0, 0, width, canvas.height);
+  const roundRect = (x0, y0, w, h, r) => { ctx.beginPath(); ctx.roundRect(x0, y0, w, h, r); };
+  roundRect(36, 36, width - 72, canvas.height - 72, 12); ctx.fillStyle = colors.card; ctx.fill(); ctx.strokeStyle = colors.stone; ctx.lineWidth = 2; ctx.stroke();
+  let y = 112;
+  ctx.fillStyle = colors.bronze; ctx.font = '600 22px Arial'; ctx.fillText(single ? 'MONTHLY STATEMENT' : 'STATEMENT OF ACCOUNT', pad, y);
+  y += 58; ctx.fillStyle = colors.ink; ctx.font = '700 42px Arial'; ctx.fillText(st.name, pad, y);
+  y += 38; ctx.fillStyle = colors.muted; ctx.font = '22px Arial';
+  const subtitle = single ? ymLabel(st.ym) + ' bill · due ' + fdue(getM(cardData(), st.ym).due) : 'All unpaid charges';
+  ctx.fillText(subtitle, pad, y);
+  y += 34; ctx.strokeStyle = colors.olive; ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(pad, y); ctx.lineTo(width - pad, y); ctx.stroke(); y += 36;
+  st.groups.forEach((g) => {
+    if (!single) { ctx.fillStyle = colors.bronze; ctx.font = '700 19px Arial'; ctx.fillText(ymLabel(g.m.ym) + ' · due ' + fdue(g.m.due), pad, y); y += 34; }
+    g.rows.forEach((l) => {
+      ctx.fillStyle = colors.ink; ctx.font = '600 23px Arial';
+      y = canvasText(ctx, l.it.d, pad, y, contentWidth - 210, 29);
+      const amountY = y - 29; ctx.textAlign = 'right'; ctx.font = '600 22px Arial'; ctx.fillText(money(l.s.a), width - pad, amountY); ctx.textAlign = 'left';
+      ctx.fillStyle = colors.muted; ctx.font = '17px Arial';
+      let detail = l.it.shares.length > 1 ? 'Your share of the ' + money(l.it.a) + ' bill' : '';
+      if (l.s.n) detail += (detail ? ' · ' : '') + l.s.n;
+      if (sPaid(l.s)) detail += (detail ? ' · ' : '') + 'Paid';
+      if (detail) y = canvasText(ctx, detail, pad, y, contentWidth - 24, 22);
+      y += 14; ctx.strokeStyle = colors.stone; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(pad, y); ctx.lineTo(width - pad, y); ctx.stroke(); y += 28;
+    });
+  });
+  y += 10; ctx.strokeStyle = colors.olive; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(pad, y); ctx.lineTo(width - pad, y); ctx.stroke(); y += 42;
+  const totalRows = [['Total charges', money(st.total)], ['Paid so far', money(st.paid)], ['Balance due', money(st.owe)]];
+  totalRows.forEach((r, i) => { ctx.fillStyle = i === 2 ? colors.olive : colors.ink; ctx.font = (i === 2 ? '700 27px Arial' : '22px Arial'); ctx.fillText(r[0], pad, y); ctx.textAlign = 'right'; ctx.fillText(r[1], width - pad, y); ctx.textAlign = 'left'; y += 40; });
+  if (st.owe <= 0.005) { y += 8; ctx.fillStyle = colors.olive; ctx.font = '700 22px Arial'; ctx.fillText('PAID IN FULL', pad, y); y += 38; ctx.fillStyle = colors.muted; ctx.font = '18px Arial'; ctx.fillText('Thank you. Nothing more to pay.', pad, y); }
+  try {
+    const link = document.createElement('a'); link.download = 'soa-' + st.name.toLowerCase().replace(/[^a-z0-9]+/g, '-') + (single ? '-' + st.ym : '') + '.png'; link.href = canvas.toDataURL('image/png'); link.click();
+  } catch (e) { toast('Image could not be downloaded'); }
+}
 
 /* ---------- events ---------- */
 document.addEventListener('click', (e) => {
   if (e.target.classList && e.target.classList.contains('scrim')) { closeModal(); return; }
   if (e.target.id === 'menuBtn') { ui.menu = !ui.menu; render(); return; }
-  const t = e.target.closest('[data-menu-close],[data-go],[data-back],[data-month],[data-person],[data-act],[data-statements],[data-newym],[data-allpaid],[data-del],[data-split],[data-charge-for],[data-closem],[data-addrow],[data-rmrow],[data-equal],[data-copy],[data-delplan],[data-soa],[data-soacopy],[data-soapaid],[data-reload],[data-toggle-person],[data-toggle-plan],[data-storage-refresh],[data-delete-month],[data-confirm-month],[data-delete-person],[data-delete-card],[data-confirm-card],[data-restore-card]');
+  const t = e.target.closest('[data-menu-close],[data-go],[data-back],[data-month],[data-person],[data-act],[data-statements],[data-newym],[data-allpaid],[data-del],[data-split],[data-charge-for],[data-closem],[data-addrow],[data-rmrow],[data-equal],[data-copy],[data-delplan],[data-soa],[data-soacopy],[data-soaimage],[data-soapaid],[data-reload],[data-toggle-person],[data-toggle-person-month],[data-toggle-plan],[data-storage-refresh],[data-delete-month],[data-confirm-month],[data-delete-person],[data-delete-card],[data-confirm-card],[data-restore-card],[data-tog],[data-plantog],[data-confirm-payment]');
   if (!t) return; const d = t.dataset;
   if (d.menuClose !== undefined) { ui.menu = false; render(); return; }
   if (d.reload) { location.reload(); return; }
-  if (d.togglePerson) { ui.openPeople.has(d.togglePerson) ? ui.openPeople.delete(d.togglePerson) : ui.openPeople.add(d.togglePerson); render(); return; }
+  if (d.togglePerson) {
+    if (ui.openPeople.has(d.togglePerson)) {
+      ui.openPeople.delete(d.togglePerson);
+      [...ui.openPersonMonths].filter((key) => key.startsWith(d.togglePerson + '|')).forEach((key) => ui.openPersonMonths.delete(key));
+    } else { ui.openPeople.add(d.togglePerson); [...ui.openPersonMonths].filter((key) => key.startsWith(d.togglePerson + '|')).forEach((key) => ui.openPersonMonths.delete(key)); }
+    render(); return;
+  }
+  if (d.togglePersonMonth) {
+    const splitAt = d.togglePersonMonth.lastIndexOf('|'), personKey = d.togglePersonMonth.slice(0, splitAt), monthKey = d.togglePersonMonth;
+    if (ui.openPeople.has(personKey)) {
+      ui.openPeople.delete(personKey);
+      const card = t.closest('.pc');
+      card?.querySelectorAll('[data-toggle-person-month]').forEach((button) => { if (button.dataset.togglePersonMonth !== monthKey) ui.openPersonMonths.add(button.dataset.togglePersonMonth); });
+      ui.openPersonMonths.delete(monthKey);
+    } else if (ui.openPersonMonths.has(monthKey)) ui.openPersonMonths.delete(monthKey);
+    else ui.openPersonMonths.add(monthKey);
+    render(); return;
+  }
   if (d.togglePlan) { ui.openPlans.has(d.togglePlan) ? ui.openPlans.delete(d.togglePlan) : ui.openPlans.add(d.togglePlan); render(); return; }
   if (d.storageRefresh !== undefined) { ui.storage = null; refreshStorage(); return; }
   if (d.deleteMonth) { confirmDeleteMonth(d.deleteMonth); return; }
@@ -460,6 +548,18 @@ document.addEventListener('click', (e) => {
   if (d.deleteCard) { confirmDeleteCard(d.deleteCard); return; }
   if (d.confirmCard) { removeCard(d.confirmCard); return; }
   if (d.restoreCard) { const card = S.cards.find((c) => c.id === d.restoreCard && c.archived); if (card) { card.archived = false; save(); render(); toast('Card restored'); } return; }
+  if (d.tog) {
+    e.preventDefault(); const q = d.tog.split('|'), f = findItem(S, q[0]), share = f && f.it.shares[+q[1]];
+    if (f && share) confirmPayment([{ s: share, m: f.m }], !sPaid(share), f.it.d);
+    return;
+  }
+  if (d.plantog) {
+    e.preventDefault(); const f = findItem(S, d.plantog); if (!f) return;
+    const paid = !f.it.shares.every(sPaid);
+    confirmPayment(f.it.shares.map((s) => ({ s, m: f.m })), paid, f.it.d);
+    return;
+  }
+  if (d.confirmPayment !== undefined) { const pending = ui.pendingPayment; if (!pending) { closeModal(); return; } closeModal(); const advanced = applyPayment(pending.lines, pending.paid); if (!advanced) toast(pending.paid ? 'Payment marked as paid' : 'Payment changed to unpaid'); return; }
   if (d.closem) { closeModal(); return; }
   if (d.go) { go(d.go); return; }
   if (d.back !== undefined) { go(ui.previous === ui.page ? 'dashboard' : ui.previous); return; }
@@ -486,8 +586,9 @@ document.addEventListener('click', (e) => {
   if (d.split) { openCharge(d.split); return; }
   if (d.soa) { openSOA(d.soa); return; }
   if (d.soacopy) { const x = soaStatement(); if (x) copyText(receiptText(x.st)); return; }
-  if (d.soapaid) { const x = soaStatement(); if (x) markPaid(x.st.groups.flatMap((g) => g.rows)); return; }
-  if (d.allpaid) { const a = d.allpaid.split('|'), m = getM(S, a[0], ui.cardId); const lines = []; m.items.forEach((it) => it.shares.forEach((s) => { if (s.p.trim().toLowerCase() === a[1]) lines.push({ s }); })); markPaid(lines); return; }
+  if (d.soaimage) { downloadSOAImage(); return; }
+  if (d.soapaid) { const x = soaStatement(); if (x) confirmPayment(x.st.groups.flatMap((g) => g.rows.map((l) => ({ s: l.s, m: l.m }))), true, 'all listed charges'); return; }
+  if (d.allpaid) { const a = d.allpaid.split('|'), m = getM(S, a[0], ui.cardId); if (!m) return; const lines = []; m.items.forEach((it) => it.shares.forEach((s) => { if (s.p.trim().toLowerCase() === a[1]) lines.push({ s, m }); })); confirmPayment(lines, true, 'all ' + a[1] + ' charges for ' + ymLabel(a[0])); return; }
   if (d.del) { const p = d.del.split('|'); if (ui.sure === d.del) { const f = findItem(S, p[0]); f.it.shares.splice(+p[1], 1); if (!f.it.shares.length) f.m.items.splice(f.j, 1); else f.it.a = sumShares(f.it); ui.sure = null; save(); } else ui.sure = d.del; render(); return; }
   if (d.delplan) {
     if (ui.sure === 'plan:' + d.delplan) { const id = d.delplan; S.plans = S.plans.filter((x) => x.id !== id); S.months.forEach((m) => { m.items = m.items.flatMap((it) => { if (!it.plan || it.plan.id !== id) return [it]; if (iPaid(it) < it.a - 0.005) return []; const historical = { ...it }; delete historical.plan; return [historical]; }); }); ui.sure = null; save(); } else ui.sure = 'plan:' + d.delplan;
@@ -511,8 +612,8 @@ document.addEventListener('change', (e) => {
   const t = e.target;
   if (t.classList.contains('pn')) { const nw = t.closest('.prow').querySelector('.pnew'); nw.hidden = t.value !== '__new'; if (!nw.hidden) nw.focus(); updateAssigned(); return; }
   if (t.id === 'soaym') { ui.soa.ym = t.value || null; renderSOA(); return; }
-  if (t.dataset.tog) { const p = t.dataset.tog.split('|'), f = findItem(S, p[0]), s = f.it.shares[+p[1]]; s.pd = t.checked ? s.a : 0; save(); render(); return; }
-  if (t.dataset.plantog) { const f = findItem(S, t.dataset.plantog); f.it.shares.forEach((s) => { s.pd = t.checked ? s.a : 0; }); save(); render(); return; }
+  if (t.dataset.tog) { const p = t.dataset.tog.split('|'), f = findItem(S, p[0]), s = f && f.it.shares[+p[1]]; if (s) { t.checked = sPaid(s); confirmPayment([{ s, m: f.m }], !sPaid(s), f.it.d); } return; }
+  if (t.dataset.plantog) { const f = findItem(S, t.dataset.plantog); if (f) { const paid = f.it.shares.every(sPaid); t.checked = paid; confirmPayment(f.it.shares.map((s) => ({ s, m: f.m })), !paid, f.it.d); } return; }
   if (t.dataset.f) {
     const q = t.dataset.f.split('|'), g = findItem(S, q[1]), sh = g.it.shares[+q[2]];
     if (q[0] === 'a') { const v = r2(parseFloat(t.value)); if (!(v > 0)) { render(); return; } sh.a = v; if (sh.pd > v) sh.pd = v; g.it.a = sumShares(g.it); }
@@ -522,6 +623,7 @@ document.addEventListener('change', (e) => {
   }
   if (t.id === 'cardSelect') { ui.cardId = t.value; localStorage.setItem('cc-card-' + location.host, ui.cardId); ui.ym = ui.pm = defaultYM(cardData(), curYM); ui.settingsYear = null; ui.storage = null; render(); return; }
   if (t.id === 'planOrder') { ui.planOrder = t.value; render(); return; }
+  if (t.id === 'settingsYear') { ui.settingsYear = t.value; render(); return; }
   if (t.id === 'yy' || t.id === 'mm') { ui.ym = $('#yy').value + '-' + $('#mm').value; render(); return; }
   if (t.id === 'pm') { ui.pm = t.value; render(); return; }
   if (t.id === 'onlyowing') { ui.onlyOwing = t.checked; render(); return; }
